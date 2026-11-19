@@ -34,7 +34,7 @@ jobs:
     steps:
       - name: Checkout repository
         if: ${{ inputs.rollback_tag == '' }}
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           ref: ${{ inputs.ref || 'main' }}
 
@@ -93,7 +93,7 @@ jobs:
     timeout-minutes: 15
     steps:
       - name: Checkout deployment manifests
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           ref: ${{ inputs.ref || 'main' }}
 

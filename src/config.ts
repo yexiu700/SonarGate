@@ -3,6 +3,15 @@ import { z } from 'zod';
 export type NodeEnv = 'development' | 'production' | 'test';
 export type LogLevel = 'fatal' | 'error' | 'warn' | 'info' | 'debug' | 'trace' | 'silent';
 export type GeminiMode = 'scraper' | 'responses';
+export type OverseasProviderMode = 'auto' | 'dataforseo' | 'openai_compat';
+
+export interface OverseasEngineOpenAiConfig {
+  provider: OverseasProviderMode;
+  baseUrl: string;
+  apiKey: string;
+  model: string;
+  extraBody: Record<string, unknown>;
+}
 
 export interface AppConfig {
   server: {
@@ -73,6 +82,18 @@ export interface AppConfig {
       geminiModel: string;
       geminiEndpoint?: string;
     };
+    relay: {
+      defaultProvider: OverseasProviderMode;
+      baseUrl: string;
+      apiKey: string;
+    };
+    engines: {
+      chatgpt: OverseasEngineOpenAiConfig;
+      perplexity: OverseasEngineOpenAiConfig;
+      gemini: OverseasEngineOpenAiConfig;
+      claude: OverseasEngineOpenAiConfig;
+      google_aio: OverseasEngineOpenAiConfig;
+    };
   };
 }
 
@@ -129,6 +150,25 @@ function urlEnv(defaultUrl: string): z.ZodType<string, z.ZodTypeDef, unknown> {
       .default(defaultUrl)
       .transform((u) => u.replace(/\/+$/, '')),
   );
+}
+
+function optionalUrlEnv(): z.ZodType<string, z.ZodTypeDef, unknown> {
+  return z.preprocess(
+    emptyToUndefined,
+    z
+      .string()
+      .trim()
+      .url()
+      .refine((u) => /^https?:\/\//i.test(u), {
+        message: 'URL must use http:// or https:// protocol',
+      })
+      .optional()
+      .transform((u) => (u !== undefined ? u.replace(/\/+$/, '') : '')),
+  );
+}
+
+function optionalProviderEnv(): z.ZodType<OverseasProviderMode | undefined, z.ZodTypeDef, unknown> {
+  return z.preprocess(emptyToUndefined, z.enum(['auto', 'dataforseo', 'openai_compat']).optional());
 }
 
 function jsonObjectEnv(
@@ -237,6 +277,45 @@ const rawEnvSchema = z
     ),
     DATAFORSEO_GEMINI_MODEL: stringEnv('gemini-2.5-flash'),
     DATAFORSEO_GEMINI_ENDPOINT: z.preprocess(emptyToUndefined, z.string().trim().min(1).optional()),
+
+    // Overseas: OpenAI-Compatible Relay (NewAPI / SubAPI / OpenRouter / etc.)
+    OVERSEAS_PROVIDER: z.preprocess(
+      emptyToUndefined,
+      z.enum(['auto', 'dataforseo', 'openai_compat']).default('auto'),
+    ),
+    OVERSEAS_RELAY_BASE_URL: optionalUrlEnv(),
+    OVERSEAS_RELAY_API_KEY: optionalSecretEnv(),
+
+    CHATGPT_PROVIDER: optionalProviderEnv(),
+    CHATGPT_BASE_URL: optionalUrlEnv(),
+    CHATGPT_API_KEY: optionalSecretEnv(),
+    CHATGPT_MODEL: stringEnv('gpt-4o-search-preview'),
+    CHATGPT_EXTRA_BODY_JSON: jsonObjectEnv({}),
+
+    PERPLEXITY_PROVIDER: optionalProviderEnv(),
+    PERPLEXITY_BASE_URL: optionalUrlEnv(),
+    PERPLEXITY_API_KEY: optionalSecretEnv(),
+    PERPLEXITY_MODEL: stringEnv('sonar-pro'),
+    PERPLEXITY_EXTRA_BODY_JSON: jsonObjectEnv({}),
+
+    GEMINI_PROVIDER: optionalProviderEnv(),
+    GEMINI_BASE_URL: optionalUrlEnv(),
+    GEMINI_API_KEY: optionalSecretEnv(),
+    GEMINI_MODEL: stringEnv('gemini-2.5-flash'),
+    GEMINI_EXTRA_BODY_JSON: jsonObjectEnv({}),
+
+    CLAUDE_PROVIDER: optionalProviderEnv(),
+    CLAUDE_BASE_URL: optionalUrlEnv(),
+    CLAUDE_API_KEY: optionalSecretEnv(),
+    CLAUDE_MODEL: stringEnv('claude-sonnet-4-5'),
+    CLAUDE_EXTRA_BODY_JSON: jsonObjectEnv({}),
+
+    // TODO: google_aio defaults to the Gemini model as an openai_compat placeholder until a dedicated SERP/AIO provider is added.
+    GOOGLE_AIO_PROVIDER: optionalProviderEnv(),
+    GOOGLE_AIO_BASE_URL: optionalUrlEnv(),
+    GOOGLE_AIO_API_KEY: optionalSecretEnv(),
+    GOOGLE_AIO_MODEL: optionalSecretEnv(),
+    GOOGLE_AIO_EXTRA_BODY_JSON: jsonObjectEnv({}),
   })
   .superRefine((data, ctx) => {
     const parsedKeys = parseGatewayApiKeys(data.GATEWAY_API_KEYS, data.GATEWAY_API_KEY);
@@ -353,6 +432,52 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
         ...(data.DATAFORSEO_GEMINI_ENDPOINT !== undefined
           ? { geminiEndpoint: data.DATAFORSEO_GEMINI_ENDPOINT }
           : {}),
+      },
+      relay: {
+        defaultProvider: data.OVERSEAS_PROVIDER,
+        baseUrl: data.OVERSEAS_RELAY_BASE_URL,
+        apiKey: data.OVERSEAS_RELAY_API_KEY,
+      },
+      engines: {
+        chatgpt: {
+          provider: data.CHATGPT_PROVIDER ?? data.OVERSEAS_PROVIDER,
+          baseUrl: data.CHATGPT_BASE_URL || data.OVERSEAS_RELAY_BASE_URL,
+          apiKey: data.CHATGPT_API_KEY || data.OVERSEAS_RELAY_API_KEY,
+          model: data.CHATGPT_MODEL,
+          extraBody: data.CHATGPT_EXTRA_BODY_JSON,
+        },
+        perplexity: {
+          provider: data.PERPLEXITY_PROVIDER ?? data.OVERSEAS_PROVIDER,
+          baseUrl: data.PERPLEXITY_BASE_URL || data.OVERSEAS_RELAY_BASE_URL,
+          apiKey: data.PERPLEXITY_API_KEY || data.OVERSEAS_RELAY_API_KEY,
+          model: data.PERPLEXITY_MODEL,
+          extraBody: data.PERPLEXITY_EXTRA_BODY_JSON,
+        },
+        gemini: {
+          provider: data.GEMINI_PROVIDER ?? data.OVERSEAS_PROVIDER,
+          baseUrl: data.GEMINI_BASE_URL || data.OVERSEAS_RELAY_BASE_URL,
+          apiKey: data.GEMINI_API_KEY || data.OVERSEAS_RELAY_API_KEY,
+          model: data.GEMINI_MODEL,
+          extraBody: data.GEMINI_EXTRA_BODY_JSON,
+        },
+        claude: {
+          provider: data.CLAUDE_PROVIDER ?? data.OVERSEAS_PROVIDER,
+          baseUrl: data.CLAUDE_BASE_URL || data.OVERSEAS_RELAY_BASE_URL,
+          apiKey: data.CLAUDE_API_KEY || data.OVERSEAS_RELAY_API_KEY,
+          model: data.CLAUDE_MODEL,
+          extraBody: data.CLAUDE_EXTRA_BODY_JSON,
+        },
+        // TODO: google_aio uses the Gemini openai_compat config as a placeholder until a dedicated SERP/AIO provider is added.
+        google_aio: {
+          provider: data.GOOGLE_AIO_PROVIDER ?? data.OVERSEAS_PROVIDER,
+          baseUrl: data.GOOGLE_AIO_BASE_URL || data.GEMINI_BASE_URL || data.OVERSEAS_RELAY_BASE_URL,
+          apiKey: data.GOOGLE_AIO_API_KEY || data.GEMINI_API_KEY || data.OVERSEAS_RELAY_API_KEY,
+          model: data.GOOGLE_AIO_MODEL || data.GEMINI_MODEL,
+          extraBody:
+            Object.keys(data.GOOGLE_AIO_EXTRA_BODY_JSON).length > 0
+              ? data.GOOGLE_AIO_EXTRA_BODY_JSON
+              : data.GEMINI_EXTRA_BODY_JSON,
+        },
       },
     },
   };

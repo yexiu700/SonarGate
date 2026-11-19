@@ -111,6 +111,9 @@ jobs:
           DATAFORSEO_PASSWORD: ${{ secrets.DATAFORSEO_PASSWORD }}
           DATAFORSEO_BASE_URL: ${{ vars.DATAFORSEO_BASE_URL }}
           DATAFORSEO_GEMINI_MODE: ${{ vars.DATAFORSEO_GEMINI_MODE }}
+          OVERSEAS_PROVIDER: ${{ vars.OVERSEAS_PROVIDER }}
+          OVERSEAS_RELAY_BASE_URL: ${{ vars.OVERSEAS_RELAY_BASE_URL }}
+          OVERSEAS_RELAY_API_KEY: ${{ secrets.OVERSEAS_RELAY_API_KEY }}
         run: |
           set -euo pipefail
           ARGS=(--prompt "$SMOKE_PROMPT")

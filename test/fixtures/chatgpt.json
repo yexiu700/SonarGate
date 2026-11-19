@@ -1,0 +1,67 @@
+{
+  "version": "0.1.20260301",
+  "status_code": 20000,
+  "status_message": "Ok.",
+  "time": "2.4125 sec.",
+  "cost": 0.0045,
+  "tasks_count": 1,
+  "tasks_error": 0,
+  "tasks": [
+    {
+      "id": "03191420-0001-0512-0000-chatgpt10001",
+      "status_code": 20000,
+      "status_message": "Ok.",
+      "cost": 0.0045,
+      "result_count": 1,
+      "result": [
+        {
+          "keyword": "best crm software for small business 2026",
+          "type": "chat_gpt_llm_scraper",
+          "model_name": "gpt-4o",
+          "markdown": "For small businesses in 2026, top CRM platforms balance ease of onboarding, pipeline automation, and predictable seat pricing.\n\n1. **HubSpot CRM** offers a generous free tier with contact management and email tracking.\n2. **Pipedrive** excels at visual deal pipelines for outbound sales teams.\n3. **Zoho CRM** provides deep workflow customization at a lower total cost.",
+          "items": [
+            {
+              "type": "chat_gpt_text",
+              "sections": [
+                {
+                  "type": "text",
+                  "text": "For small businesses in 2026, top CRM platforms balance ease of onboarding and pipeline automation."
+                }
+              ]
+            }
+          ],
+          "sources": [
+            {
+              "url": "https://www.hubspot.com/products/crm?utm_source=chatgpt",
+              "title": "HubSpot CRM Platform Overview",
+              "snippet": "Free CRM software with contact management, deal pipelines, and reporting.",
+              "domain": "www.hubspot.com"
+            },
+            {
+              "url": "https://www.pipedrive.com/en/features",
+              "title": "Pipedrive Sales Pipeline Features",
+              "snippet": "Visual sales CRM built to help small teams close deals faster.",
+              "domain": "www.pipedrive.com"
+            }
+          ],
+          "search_results": [
+            {
+              "url": "https://www.pipedrive.com/en/features",
+              "title": "Pipedrive Sales Pipeline Features (Duplicate)",
+              "description": "Duplicate URL from search_results to test deduplication."
+            },
+            {
+              "url": "https://www.zoho.com/crm/pricing.html",
+              "title": "Zoho CRM Pricing & Plans",
+              "description": "Flexible CRM pricing tiers for growing small businesses."
+            }
+          ],
+          "fan_out_queries": [
+            "best crm software small business 2026",
+            "hubspot vs pipedrive pricing"
+          ]
+        }
+      ]
+    }
+  ]
+}

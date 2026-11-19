@@ -1,0 +1,61 @@
+{
+  "id": "resp_doubao_001",
+  "object": "response",
+  "model": "ep-20260101-doubao-seed",
+  "status": "completed",
+  "output": [
+    {
+      "type": "web_search_call",
+      "id": "ws_001",
+      "status": "completed",
+      "action": {
+        "type": "search",
+        "query": "2026年中小企业CRM系统推荐",
+        "queries": ["2026中小企业CRM对比", "轻量级CRM选型指南"]
+      }
+    },
+    {
+      "type": "message",
+      "id": "msg_001",
+      "role": "assistant",
+      "status": "completed",
+      "content": [
+        {
+          "type": "output_text",
+          "text": "2026年适合中小企业的CRM系统主要包括纷享销客、销售易、Zoho CRM以及HubSpot Starter。选型时建议重点关注微信生态集成、移动端易用性与按席位订阅成本。",
+          "annotations": [
+            {
+              "type": "url_citation",
+              "url": "https://example.com/crm/2026-guide?utm_source=ark&id=42",
+              "title": "2026中小企业CRM选型指南",
+              "summary": "从部署成本、微信生态集成与自动化能力对比主流CRM。"
+            },
+            {
+              "type": "url_citation",
+              "url": "https://example.org/reviews/crm-top5",
+              "title": "五大热门CRM深度评测",
+              "summary": "涵盖销售线索管理、客户跟进与报表分析能力。"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://example.com/crm/2026-guide?utm_source=ark&id=42",
+      "title": "重复引用条目",
+      "summary": "应被去重逻辑忽略。"
+    },
+    {
+      "url": "https://docs.example.net/crm/pricing",
+      "title": "SaaS CRM 2026 Pricing Overview",
+      "snippet": "Comparison of per-seat annual pricing tiers for SMB teams."
+    }
+  ],
+  "usage": {
+    "input_tokens": 128,
+    "output_tokens": 342,
+    "total_tokens": 470
+  }
+}

@@ -1,0 +1,61 @@
+{
+  "id": "chatcmpl-deepseek-001",
+  "object": "chat.completion",
+  "created": 1767225600,
+  "model": "deepseek-chat",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "针对中小企业CRM选型，建议优先关注上线周期短、支持企微/钉钉打通且定价透明的SaaS产品，如纷享销客、Zoho CRM和简道云CRM。",
+        "reasoning_content": "用户询问中小企业CRM推荐，我应结合联网搜索结果进行客观对比，绝对不要把这段内部思考链拼接到最终回答正文中。",
+        "annotations": [
+          {
+            "url": "https://example.com/ds/ann-1",
+            "title": "CRM功能矩阵对比",
+            "summary": "核心销售自动化与工单模块评测。"
+          }
+        ],
+        "search_results": [
+          {
+            "source_url": "https://example.com/ds/msg-sr-1",
+            "name": "SaaS行业观察",
+            "desc": "2026年中小企业CRM渗透率与续费率分析。"
+          }
+        ],
+        "search_queries": ["企微CRM集成方案"]
+      },
+      "finish_reason": "stop"
+    }
+  ],
+  "citations": [
+    "https://example.com/ds/cite-1",
+    {
+      "url": "https://example.com/ds/ann-1",
+      "title": "CRM功能矩阵（顶层优先）",
+      "snippet": "顶层citations优先于message.annotations保留。"
+    }
+  ],
+  "search_results": [
+    {
+      "link": "https://example.com/ds/top-sr-1",
+      "title": "中小企业数字化白皮书",
+      "content": "CRM平均部署周期与ROI统计。"
+    }
+  ],
+  "web_search": [
+    {
+      "href": "https://example.com/ds/ws-1",
+      "site_name": "企业软件网",
+      "snippet": "2026年国产与海外CRM定价趋势对比。"
+    }
+  ],
+  "search_queries": ["中小企业CRM推荐 2026"],
+  "web_search_queries": ["SaaS CRM 性价比对比", "中小企业CRM推荐 2026"],
+  "usage": {
+    "prompt_tokens": 96,
+    "completion_tokens": 280,
+    "total_tokens": 376
+  }
+}

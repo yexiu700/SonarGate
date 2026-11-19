@@ -1,0 +1,38 @@
+{
+  "version": "0.1.20260301",
+  "status_code": 20000,
+  "status_message": "Ok.",
+  "time": "1.3105 sec.",
+  "cost": 0.002,
+  "tasks_count": 1,
+  "tasks_error": 0,
+  "tasks": [
+    {
+      "id": "03191420-0006-0512-0000-googleaio002",
+      "status_code": 20000,
+      "status_message": "Ok.",
+      "cost": 0.002,
+      "result_count": 1,
+      "result": [
+        {
+          "keyword": "sonargate internal login page",
+          "type": "organic",
+          "items": [
+            {
+              "type": "organic",
+              "title": "Example Organic Result 1",
+              "url": "https://example.com/result-1",
+              "description": "Navigational query without an AI Overview block."
+            },
+            {
+              "type": "organic",
+              "title": "Example Organic Result 2",
+              "url": "https://example.com/result-2",
+              "description": "Second organic search result."
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

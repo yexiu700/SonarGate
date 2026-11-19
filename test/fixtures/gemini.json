@@ -1,0 +1,46 @@
+{
+  "version": "0.1.20260301",
+  "status_code": 20000,
+  "status_message": "Ok.",
+  "time": "2.1530 sec.",
+  "cost": 0.0038,
+  "tasks_count": 1,
+  "tasks_error": 0,
+  "tasks": [
+    {
+      "id": "03191420-0003-0512-0000-gemini000001",
+      "status_code": 20000,
+      "status_message": "Ok.",
+      "cost": 0.0038,
+      "result_count": 1,
+      "result": [
+        {
+          "keyword": "open source vector databases 2026",
+          "markdown": "Leading open-source vector databases in 2026 include Qdrant, Milvus, and Weaviate.\n\nQdrant is written in Rust and emphasizes low-latency filtered HNSW search, while Milvus targets large-scale distributed deployments.",
+          "items": [
+            {
+              "type": "text",
+              "text": "Leading open-source vector databases in 2026 include Qdrant, Milvus, and Weaviate."
+            }
+          ],
+          "sources": [
+            {
+              "url": "https://qdrant.tech/documentation/overview/",
+              "title": "Qdrant Vector Database Documentation",
+              "snippet": "High-performance vector similarity search engine written in Rust."
+            },
+            {
+              "url": "https://milvus.io/docs/overview.md",
+              "title": "Milvus Architecture Overview",
+              "snippet": "Cloud-native distributed vector database for billion-scale embeddings."
+            }
+          ],
+          "fan_out_queries": [
+            "open source vector databases 2026",
+            "milvus vs qdrant benchmark"
+          ]
+        }
+      ]
+    }
+  ]
+}

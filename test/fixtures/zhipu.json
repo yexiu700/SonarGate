@@ -1,0 +1,48 @@
+{
+  "id": "chatcmpl-zhipu-001",
+  "created": 1767225620,
+  "model": "glm-4-plus",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "结合最新行业调研，中小企业CRM推荐如下：销售驱动型团队可优先考虑纷享销客或销售易，重自定义流程团队适合低代码CRM如简道云与明道云。"
+      },
+      "finish_reason": "stop"
+    }
+  ],
+  "web_search": [
+    {
+      "refer": "ref_1",
+      "title": "2026 CRM厂商评测报告",
+      "link": "https://example.com/zhipu/report-1",
+      "media": "企业服务周刊",
+      "content": "对比了客户跟进、商机预测与BI仪表盘等核心能力。"
+    },
+    {
+      "refer": "ref_2",
+      "title": "低代码CRM选型实践",
+      "link": "https://example.com/zhipu/lowcode-crm",
+      "media": "技术社区",
+      "content": "支持自定义字段、审批流与外部Webhook集成。"
+    }
+  ],
+  "search_intent": [
+    {
+      "query": "2026中小企业CRM选型",
+      "intent": "SEARCH_ALL",
+      "keywords": "中小企业 CRM 推荐 2026"
+    },
+    {
+      "query": "低代码CRM对比",
+      "intent": "SEARCH_ALL",
+      "keywords": "低代码 CRM 对比"
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 105,
+    "completion_tokens": 295,
+    "total_tokens": 400
+  }
+}

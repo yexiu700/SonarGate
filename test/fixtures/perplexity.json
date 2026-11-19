@@ -1,0 +1,60 @@
+{
+  "version": "0.1.20260301",
+  "status_code": 20000,
+  "status_message": "Ok.",
+  "time": "1.9840 sec.",
+  "cost": 0.0062,
+  "tasks_count": 1,
+  "tasks_error": 0,
+  "tasks": [
+    {
+      "id": "03191420-0002-0512-0000-perplexity01",
+      "status_code": 20000,
+      "status_message": "Ok.",
+      "cost": 0.0062,
+      "result_count": 1,
+      "result": [
+        {
+          "model_name": "sonar",
+          "input_tokens": 120,
+          "output_tokens": 340,
+          "items": [
+            {
+              "type": "message",
+              "sections": [
+                {
+                  "type": "text",
+                  "text": "Modern observability stacks in 2026 standardize on OpenTelemetry for vendor-neutral telemetry collection across traces, metrics, and logs.",
+                  "annotations": [
+                    {
+                      "url": "https://opentelemetry.io/docs/concepts/observability-primer/",
+                      "title": "OpenTelemetry Observability Primer",
+                      "snippet": "Vendor-neutral APIs, SDKs, and tools for distributed telemetry."
+                    }
+                  ]
+                },
+                {
+                  "type": "text",
+                  "text": "Grafana Tempo and ClickHouse are widely adopted for cost-efficient high-cardinality trace and log storage.",
+                  "annotations": [
+                    {
+                      "url": "https://grafana.com/oss/tempo/",
+                      "title": "Grafana Tempo Distributed Tracing"
+                    }
+                  ]
+                }
+              ]
+            }
+          ],
+          "sources": [
+            {
+              "url": "https://clickhouse.com/use-cases/observability",
+              "title": "ClickHouse for Observability",
+              "description": "High-performance columnar storage for logs, metrics, and traces."
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

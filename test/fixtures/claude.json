@@ -1,0 +1,50 @@
+{
+  "version": "0.1.20260301",
+  "status_code": 20000,
+  "status_message": "Ok.",
+  "time": "2.8910 sec.",
+  "cost": 0.0115,
+  "tasks_count": 1,
+  "tasks_error": 0,
+  "tasks": [
+    {
+      "id": "03191420-0004-0512-0000-claude000001",
+      "status_code": 20000,
+      "status_message": "Ok.",
+      "cost": 0.0115,
+      "result_count": 1,
+      "result": [
+        {
+          "model_name": "claude-sonnet-4-5",
+          "input_tokens": 145,
+          "output_tokens": 410,
+          "items": [
+            {
+              "type": "message",
+              "sections": [
+                {
+                  "type": "text",
+                  "text": "When choosing a TypeScript HTTP framework for high-throughput API gateways, Fastify stands out for its schema-based serialization and low per-request overhead.",
+                  "annotations": [
+                    {
+                      "url": "https://fastify.dev/docs/latest/Guides/Benchmarking/",
+                      "title": "Fastify Benchmarking Guide",
+                      "snippet": "Schema-driven JSON serialization and low-overhead plugin encapsulation."
+                    }
+                  ]
+                }
+              ]
+            }
+          ],
+          "sources": [
+            {
+              "url": "https://undici.nodejs.org/",
+              "title": "Undici HTTP/1.1 Client for Node.js",
+              "description": "Fast, spec-compliant HTTP client built for Node.js."
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

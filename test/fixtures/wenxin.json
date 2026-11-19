@@ -1,0 +1,39 @@
+{
+  "id": "as-wenxin-001",
+  "object": "chat.completion",
+  "created": 1767225630,
+  "model": "ernie-4.5-turbo-128k",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "为中小企业挑选CRM系统时，可重点考虑纷享销客、爱番番、Zoho CRM和HubSpot，结合线索获客渠道与预算规模分阶段实施。"
+      },
+      "finish_reason": "stop"
+    }
+  ],
+  "search_results": [
+    {
+      "index": 1,
+      "url": "https://example.com/wenxin/crm-overview",
+      "title": "2026国内CRM市场全景",
+      "content": "覆盖制造、零售与B2B企业服务行业。"
+    },
+    {
+      "index": 2,
+      "url": "https://example.com/wenxin/crm-cost",
+      "title": "CRM年度费用对比",
+      "content": "按坐席订阅与私有化部署成本分析。"
+    }
+  ],
+  "search_trace": {
+    "queries": ["国内CRM市场全景 2026", "中小企业CRM年度费用"]
+  },
+  "search_queries": ["中小企业CRM年度费用", "B2B CRM 选型"],
+  "usage": {
+    "prompt_tokens": 118,
+    "completion_tokens": 264,
+    "total_tokens": 382
+  }
+}

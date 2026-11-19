@@ -1,0 +1,73 @@
+name: Auto Merge
+
+# Auto-merges same-repo non-draft PRs once CI passes.
+# Per CI/CD design §7 Q2, this workflow does NOT trigger CD automatically.
+on:
+  pull_request:
+    types:
+      - opened
+      - reopened
+      - ready_for_review
+      - synchronize
+  workflow_run:
+    workflows:
+      - CI
+    types:
+      - completed
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  enable-auto-merge:
+    name: enable-auto-merge
+    if: >-
+      github.event_name == 'pull_request' &&
+      !github.event.pull_request.draft &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Enable GitHub auto-merge on PR
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          # Enables native auto-merge when configured in repo settings; non-fatal if not enabled.
+          gh pr merge "$PR_NUMBER" --repo "$REPO" --auto --squash --delete-branch || true
+
+  merge-after-ci:
+    name: merge-after-ci
+    if: >-
+      github.event_name == 'workflow_run' &&
+      github.event.workflow_run.event == 'pull_request' &&
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.head_repository.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Merge eligible PR after CI success
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          PR_NUMBER="$(gh pr list \
+            --repo "$REPO" \
+            --state open \
+            --json number,headRefOid,isDraft,headRepositoryOwner \
+            --jq ".[] | select(.headRefOid == \"${HEAD_SHA}\" and .isDraft == false) | .number" \
+            | head -n 1)"
+
+          if [ -z "$PR_NUMBER" ]; then
+            echo "No open non-draft PR found for commit ${HEAD_SHA}; skipping."
+            exit 0
+          fi
+
+          echo "CI succeeded for PR #${PR_NUMBER}; attempting squash merge..."
+          gh pr merge "$PR_NUMBER" --repo "$REPO" --squash --delete-branch || \
+            gh pr merge "$PR_NUMBER" --repo "$REPO" --auto --squash --delete-branch || true

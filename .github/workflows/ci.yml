@@ -1,0 +1,137 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint & format check
+        run: pnpm lint
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Run unit & integration tests
+        run: pnpm test
+
+      - name: Run E2E tests (Tiers 1-5, mocked)
+        run: pnpm test:e2e
+
+      - name: Build
+        run: pnpm build
+
+  docker-check:
+    name: docker-check
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Docker image (load locally)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          push: false
+          load: true
+          tags: sonargate:ci
+          cache-from: type=gha,scope=sonargate-ci
+          cache-to: type=gha,mode=max,scope=sonargate-ci,ignore-error=true
+
+      - name: Smoke test container (/health, /ready, auth, non-root)
+        run: |
+          set -euo pipefail
+
+          CONTAINER_NAME="sonargate-ci"
+          cleanup() {
+            docker rm -f "$CONTAINER_NAME" >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT
+
+          docker run -d \
+            --name "$CONTAINER_NAME" \
+            --read-only \
+            --tmpfs /tmp:size=64m \
+            --security-opt no-new-privileges:true \
+            -p 127.0.0.1:18080:8080 \
+            -e GATEWAY_API_KEYS=ci-test-key \
+            sonargate:ci
+
+          echo "Checking container non-root UID..."
+          CONTAINER_UID="$(docker exec "$CONTAINER_NAME" id -u)"
+          if [ "$CONTAINER_UID" != "10001" ]; then
+            echo "Expected container UID 10001, got: $CONTAINER_UID"
+            docker logs "$CONTAINER_NAME" || true
+            exit 1
+          fi
+
+          echo "Waiting for GET /health to return 200..."
+          HEALTH_OK=0
+          for i in $(seq 1 30); do
+            STATUS="$(curl -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:18080/health || echo 000)"
+            if [ "$STATUS" = "200" ]; then
+              HEALTH_OK=1
+              break
+            fi
+            sleep 1
+          done
+          if [ "$HEALTH_OK" != "1" ]; then
+            echo "GET /health did not return 200 within 30s"
+            docker logs "$CONTAINER_NAME" || true
+            exit 1
+          fi
+
+          echo "Checking GET /ready returns 503 when no engine keys are configured..."
+          READY_STATUS="$(curl -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:18080/ready)"
+          if [ "$READY_STATUS" != "503" ]; then
+            echo "Expected GET /ready -> 503, got: $READY_STATUS"
+            docker logs "$CONTAINER_NAME" || true
+            exit 1
+          fi
+
+          echo "Checking unauthenticated POST /v1/collect returns 401..."
+          COLLECT_STATUS="$(curl -sS -o /dev/null -w '%{http_code}' -X POST \
+            -H 'Content-Type: application/json' \
+            -d '{"engine":"doubao","prompt":"ping"}' \
+            http://127.0.0.1:18080/v1/collect)"
+          if [ "$COLLECT_STATUS" != "401" ]; then
+            echo "Expected unauthenticated POST /v1/collect -> 401, got: $COLLECT_STATUS"
+            docker logs "$CONTAINER_NAME" || true
+            exit 1
+          fi
+
+          echo "All container smoke assertions passed (uid=10001, /health=200, /ready=503, unauth /v1/collect=401)."

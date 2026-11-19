@@ -1,0 +1,228 @@
+name: Smoke Test (Real Keys)
+
+# Manual-only workflow bound to the `smoke` Environment.
+# NEVER add pull_request or push triggers here to prevent secret exposure or unintended upstream billing.
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'Smoke mode: single engine or all configured engines'
+        required: true
+        default: 'single'
+        type: choice
+        options:
+          - single
+          - all-configured
+      engine:
+        description: 'Target engine (used when mode=single)'
+        required: false
+        default: 'doubao'
+        type: choice
+        options:
+          - doubao
+          - deepseek
+          - tongyi
+          - zhipu
+          - wenxin
+          - chatgpt
+          - perplexity
+          - gemini
+          - claude
+          - google_aio
+      prompt:
+        description: 'Test prompt'
+        required: true
+        default: '2026年中小企业CRM系统推荐哪几款？'
+        type: string
+      target_url:
+        description: 'Optional deployed gateway URL (e.g. https://sonargate.example.com/v1/collect); leave blank to run local pnpm smoke'
+        required: false
+        default: ''
+        type: string
+      location_code:
+        description: 'Optional DataForSEO locationCode (e.g. 2840)'
+        required: false
+        default: ''
+        type: string
+      language_code:
+        description: 'Optional DataForSEO languageCode (e.g. en)'
+        required: false
+        default: ''
+        type: string
+      no_cache:
+        description: 'Bypass cache during smoke test'
+        required: false
+        default: true
+        type: boolean
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    name: smoke
+    runs-on: ubuntu-latest
+    environment: smoke
+    timeout-minutes: 10
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        if: ${{ inputs.target_url == '' }}
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: ${{ inputs.target_url == '' && 'pnpm' || '' }}
+
+      - name: Install dependencies (local smoke mode)
+        if: ${{ inputs.target_url == '' }}
+        run: pnpm install --frozen-lockfile
+
+      - name: Run local pnpm smoke against real upstream keys
+        if: ${{ inputs.target_url == '' }}
+        env:
+          SMOKE_MODE: ${{ inputs.mode }}
+          SMOKE_ENGINE: ${{ inputs.engine }}
+          SMOKE_PROMPT: ${{ inputs.prompt }}
+          SMOKE_LOCATION_CODE: ${{ inputs.location_code }}
+          SMOKE_LANGUAGE_CODE: ${{ inputs.language_code }}
+          SMOKE_NO_CACHE: ${{ inputs.no_cache }}
+          GATEWAY_API_KEYS: ${{ secrets.SMOKE_GATEWAY_API_KEY || 'smoke-ephemeral-local-key' }}
+          DOUBAO_API_KEY: ${{ secrets.DOUBAO_API_KEY }}
+          DOUBAO_MODEL: ${{ secrets.DOUBAO_MODEL }}
+          DOUBAO_BASE_URL: ${{ vars.DOUBAO_BASE_URL }}
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          DEEPSEEK_BASE_URL: ${{ vars.DEEPSEEK_BASE_URL }}
+          DEEPSEEK_MODEL: ${{ vars.DEEPSEEK_MODEL }}
+          TONGYI_API_KEY: ${{ secrets.TONGYI_API_KEY }}
+          TONGYI_BASE_URL: ${{ vars.TONGYI_BASE_URL }}
+          TONGYI_MODEL: ${{ vars.TONGYI_MODEL }}
+          ZHIPU_API_KEY: ${{ secrets.ZHIPU_API_KEY }}
+          ZHIPU_BASE_URL: ${{ vars.ZHIPU_BASE_URL }}
+          ZHIPU_MODEL: ${{ vars.ZHIPU_MODEL }}
+          WENXIN_API_KEY: ${{ secrets.WENXIN_API_KEY }}
+          WENXIN_BASE_URL: ${{ vars.WENXIN_BASE_URL }}
+          WENXIN_MODEL: ${{ vars.WENXIN_MODEL }}
+          DATAFORSEO_LOGIN: ${{ secrets.DATAFORSEO_LOGIN }}
+          DATAFORSEO_PASSWORD: ${{ secrets.DATAFORSEO_PASSWORD }}
+          DATAFORSEO_BASE_URL: ${{ vars.DATAFORSEO_BASE_URL }}
+          DATAFORSEO_GEMINI_MODE: ${{ vars.DATAFORSEO_GEMINI_MODE }}
+        run: |
+          set -euo pipefail
+          ARGS=(--prompt "$SMOKE_PROMPT")
+          if [ "$SMOKE_MODE" = "all-configured" ]; then
+            ARGS+=(--all-configured)
+          else
+            ARGS+=(--engine "$SMOKE_ENGINE")
+          fi
+          if [ -n "$SMOKE_LOCATION_CODE" ]; then
+            ARGS+=(--location-code "$SMOKE_LOCATION_CODE")
+          fi
+          if [ -n "$SMOKE_LANGUAGE_CODE" ]; then
+            ARGS+=(--language-code "$SMOKE_LANGUAGE_CODE")
+          fi
+          if [ "$SMOKE_NO_CACHE" = "true" ]; then
+            ARGS+=(--no-cache)
+          fi
+          pnpm smoke "${ARGS[@]}"
+
+      - name: Run remote smoke against deployed gateway (no redirects allowed)
+        if: ${{ inputs.target_url != '' }}
+        env:
+          TARGET_URL: ${{ inputs.target_url }}
+          SMOKE_GATEWAY_API_KEY: ${{ secrets.SMOKE_GATEWAY_API_KEY }}
+          SMOKE_MODE: ${{ inputs.mode }}
+          SMOKE_ENGINE: ${{ inputs.engine }}
+          SMOKE_PROMPT: ${{ inputs.prompt }}
+          SMOKE_LOCATION_CODE: ${{ inputs.location_code }}
+          SMOKE_LANGUAGE_CODE: ${{ inputs.language_code }}
+          SMOKE_NO_CACHE: ${{ inputs.no_cache }}
+        run: |
+          node --input-type=module <<'EOF'
+          const rawTarget = (process.env.TARGET_URL || '').trim().replace(/\/+$/, '');
+          const apiKey = (process.env.SMOKE_GATEWAY_API_KEY || '').trim();
+          if (!apiKey) {
+            console.error('ERROR: SMOKE_GATEWAY_API_KEY secret is required in the smoke environment for remote smoke.');
+            process.exit(1);
+          }
+
+          const collectUrl = rawTarget.endsWith('/v1/collect') ? rawTarget : `${rawTarget}/v1/collect`;
+          const enginesUrl = collectUrl.replace(/\/v1\/collect$/, '/v1/engines');
+
+          async function fetchNoRedirect(url, init) {
+            const res = await fetch(url, { ...init, redirect: 'manual' });
+            if (res.status >= 300 && res.status < 400) {
+              throw new Error(`Redirect refused (${res.status}) from ${url} -> ${res.headers.get('location') || '<none>'}`);
+            }
+            return res;
+          }
+
+          let engines = [];
+          if (process.env.SMOKE_MODE === 'all-configured') {
+            const res = await fetchNoRedirect(enginesUrl, {
+              headers: { Authorization: `Bearer ${apiKey}` },
+            });
+            if (res.status !== 200) {
+              console.error(`GET ${enginesUrl} failed with HTTP ${res.status}`);
+              process.exit(1);
+            }
+            const body = await res.json();
+            engines = (body.engines || []).filter((e) => e.configured).map((e) => e.engine);
+            if (engines.length === 0) {
+              console.error('No configured engines reported by remote gateway.');
+              process.exit(1);
+            }
+          } else {
+            engines = [process.env.SMOKE_ENGINE];
+          }
+
+          let allPassed = true;
+          for (const engine of engines) {
+            const payload = {
+              engine,
+              prompt: process.env.SMOKE_PROMPT,
+              ...(process.env.SMOKE_LOCATION_CODE ? { locationCode: Number(process.env.SMOKE_LOCATION_CODE) } : {}),
+              ...(process.env.SMOKE_LANGUAGE_CODE ? { languageCode: process.env.SMOKE_LANGUAGE_CODE } : {}),
+              ...(process.env.SMOKE_NO_CACHE === 'true' ? { noCache: true } : {}),
+            };
+            const started = Date.now();
+            const res = await fetchNoRedirect(collectUrl, {
+              method: 'POST',
+              headers: {
+                Authorization: `Bearer ${apiKey}`,
+                'Content-Type': 'application/json',
+                ...(process.env.SMOKE_NO_CACHE === 'true' ? { 'X-Bypass-Cache': 'true' } : {}),
+              },
+              body: JSON.stringify(payload),
+            });
+            const elapsed = Date.now() - started;
+            console.log(`\n=== [${engine}] HTTP ${res.status} (${elapsed}ms) ===`);
+            const text = await res.text();
+            if (res.status !== 200) {
+              console.error('Error body:', text.slice(0, 500));
+              allPassed = false;
+              continue;
+            }
+            const data = JSON.parse(text);
+            const valid =
+              typeof data.answerText === 'string' &&
+              data.answerText.length > 0 &&
+              Array.isArray(data.citations) &&
+              Array.isArray(data.fanOutQueries);
+            if (!valid) {
+              console.error('GeoMix Schema: FAIL', text.slice(0, 500));
+              allPassed = false;
+              continue;
+            }
+            console.log(`answerText: len=${data.answerText.length} | "${data.answerText.replace(/\s+/g, ' ').slice(0, 120)}"`);
+            console.log(`citations: count=${data.citations.length}`);
+            console.log(`fanOutQueries: ${JSON.stringify(data.fanOutQueries)}`);
+            console.log('GeoMix Schema: PASS');
+          }
+
+          process.exit(allPassed ? 0 : 1);
+          EOF

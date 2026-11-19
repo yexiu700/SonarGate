@@ -1,0 +1,39 @@
+{
+  "id": "chatcmpl-tongyi-001",
+  "object": "chat.completion",
+  "created": 1767225610,
+  "model": "qwen-plus",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "2026年国内中小企业常用的CRM系统包括钉钉宜搭CRM、纷享销客、神州云动与Zoho CRM，选型时可按团队规模和行业模板匹配度综合评估。"
+      },
+      "finish_reason": "stop"
+    }
+  ],
+  "search_info": {
+    "search_results": [
+      {
+        "index": 1,
+        "url": "https://example.com/tongyi/crm-1?spm=dashscope",
+        "title": "中小企业CRM排行榜",
+        "site_name": "数字化观察",
+        "snippet": "综合易用性、钉钉协同与移动端支持评选。"
+      },
+      {
+        "index": 2,
+        "url": "https://example.com/tongyi/crm-2",
+        "title": "CRM实施避坑指南",
+        "site_name": "知乎专栏"
+      }
+    ],
+    "search_queries": ["2026 CRM系统排名", "国产CRM优缺点"]
+  },
+  "usage": {
+    "prompt_tokens": 112,
+    "completion_tokens": 310,
+    "total_tokens": 422
+  }
+}

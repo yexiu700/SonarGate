@@ -1,0 +1,96 @@
+import { z } from 'zod';
+
+export const SUPPORTED_ENGINES = [
+  'doubao',
+  'deepseek',
+  'tongyi',
+  'zhipu',
+  'wenxin',
+  'chatgpt',
+  'perplexity',
+  'gemini',
+  'claude',
+  'google_aio',
+] as const;
+
+export type SupportedEngine = (typeof SUPPORTED_ENGINES)[number];
+
+export const SUPPORTED_ENGINE_SET: ReadonlySet<string> = new Set(SUPPORTED_ENGINES);
+
+export function isSupportedEngine(value: string): value is SupportedEngine {
+  return SUPPORTED_ENGINE_SET.has(value);
+}
+
+export const collectRequestSchema = z.object({
+  prompt: z.string().trim().min(1, 'prompt 不能为空').max(2000, 'prompt 长度不能超过 2000'),
+  engine: z
+    .string()
+    .trim()
+    .min(1)
+    .max(64)
+    .transform((s) => s.toLowerCase()),
+  locationCode: z.number().int().positive().optional(),
+  languageCode: z.string().trim().min(2).max(16).optional(),
+  noCache: z.boolean().optional(),
+});
+
+export const normalizedCitationSchema = z.object({
+  url: z.string().url().max(2048),
+  title: z.string().max(300).optional(),
+  snippet: z.string().max(1000).optional(),
+  position: z.number().int().positive().optional(),
+});
+
+export const collectRawMetaSchema = z
+  .object({
+    engine: z.string(),
+    region: z.enum(['domestic', 'overseas']),
+    provider: z.string(),
+    model: z.string().optional(),
+    requestId: z.string(),
+    latencyMs: z.number().int().nonnegative(),
+    attempts: z.number().int().positive(),
+    cached: z.boolean(),
+    costUsd: z.number().nonnegative().optional(),
+    tokensIn: z.number().int().nonnegative().optional(),
+    tokensOut: z.number().int().nonnegative().optional(),
+    aiOverviewTriggered: z.boolean().optional(),
+    citationsExtractedFromText: z.boolean().optional(),
+    truncatedForByteLimit: z.boolean().optional(),
+    upstreamRequestId: z.string().optional(),
+  })
+  .passthrough();
+
+export const collectResponseSchema = z.object({
+  answerText: z.string().min(1).max(200_000),
+  citations: z.array(normalizedCitationSchema).max(100),
+  fanOutQueries: z.array(z.string().min(1).max(300)).max(50),
+  rawMeta: collectRawMetaSchema,
+});
+
+export const gatewayErrorCodeSchema = z.enum([
+  'INVALID_REQUEST',
+  'UNSUPPORTED_ENGINE',
+  'UNAUTHORIZED',
+  'UPSTREAM_TIMEOUT',
+  'RATE_LIMITED',
+  'ENGINE_NOT_CONFIGURED',
+  'UPSTREAM_BAD_RESPONSE',
+  'UPSTREAM_AUTH_OR_QUOTA',
+]);
+
+export const errorEnvelopeSchema = z.object({
+  error: z.object({
+    code: gatewayErrorCodeSchema,
+    message: z.string(),
+    retryable: z.boolean(),
+    engine: z.string().optional(),
+    requestId: z.string(),
+  }),
+});
+
+export type CollectRequest = z.infer<typeof collectRequestSchema>;
+export type NormalizedCitation = z.infer<typeof normalizedCitationSchema>;
+export type CollectRawMeta = z.infer<typeof collectRawMetaSchema>;
+export type CollectResponse = z.infer<typeof collectResponseSchema>;
+export type ErrorEnvelope = z.infer<typeof errorEnvelopeSchema>;

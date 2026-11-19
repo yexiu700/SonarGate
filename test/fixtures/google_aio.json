@@ -1,0 +1,58 @@
+{
+  "version": "0.1.20260301",
+  "status_code": 20000,
+  "status_message": "Ok.",
+  "time": "1.6420 sec.",
+  "cost": 0.002,
+  "tasks_count": 1,
+  "tasks_error": 0,
+  "tasks": [
+    {
+      "id": "03191420-0005-0512-0000-googleaio001",
+      "status_code": 20000,
+      "status_message": "Ok.",
+      "cost": 0.002,
+      "result_count": 1,
+      "result": [
+        {
+          "keyword": "what is generative engine optimization",
+          "type": "organic",
+          "items": [
+            {
+              "type": "ai_overview",
+              "markdown": "Generative Engine Optimization (GEO) is the practice of structuring content, citations, and entity authority so AI answer engines accurately retrieve and cite a brand.",
+              "items": [
+                {
+                  "type": "ai_overview_element",
+                  "title": "Key GEO Practices",
+                  "text": "Publish original benchmark data, clear schema markup, and concise factual summaries.",
+                  "references": [
+                    {
+                      "url": "https://developers.google.com/search/docs/appearance/ai-features",
+                      "title": "Google Search AI Features Documentation",
+                      "text": "Guidance on appearing in AI Overviews and AI-powered Search experiences."
+                    }
+                  ]
+                }
+              ],
+              "references": [
+                {
+                  "url": "https://arxiv.org/abs/2311.09735",
+                  "title": "GEO: Generative Engine Optimization",
+                  "text": "Academic study evaluating citation visibility methods in generative engines.",
+                  "domain": "arxiv.org"
+                }
+              ]
+            },
+            {
+              "type": "organic",
+              "title": "Organic Result Example",
+              "url": "https://example.com/geo-guide",
+              "description": "A standard organic search result below the AI Overview."
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

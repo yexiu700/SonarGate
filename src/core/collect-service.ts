@@ -4,7 +4,7 @@ import type { CollectRequest, CollectResponse, SupportedEngine } from './contrac
 import { upstreamTimeoutError } from './errors.js';
 import { normalizeResponse } from './normalizer.js';
 import type { EngineRegistry } from './registry.js';
-import { DEFAULT_MIN_REMAINING_BUDGET_MS, withRetry } from './retry.js';
+import { withRetry } from './retry.js';
 import type { EngineRegion } from './types.js';
 
 export interface CollectServiceDeps {
@@ -103,7 +103,7 @@ export class CollectService {
                   maxRetries: config.budget.maxUpstreamRetries,
                   baseDelayMs: config.budget.retryBaseDelayMs,
                   deadlineMs,
-                  minRemainingBudgetMs: DEFAULT_MIN_REMAINING_BUDGET_MS,
+                  minRemainingBudgetMs: config.budget.retryMinRemainingBudgetMs,
                   signal: flightController.signal,
                   engine: adapter.engine,
                 },

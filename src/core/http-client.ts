@@ -4,6 +4,7 @@ import type { LoggerLike } from './types.js';
 
 export const DEFAULT_MAX_RESPONSE_BYTES = 5 * 1024 * 1024;
 const MAX_ERROR_BODY_BYTES = 4096;
+const MAX_LOGGED_ERROR_BODY_CHARS = 512;
 
 const TIMEOUT_ERROR_CODES = new Set([
   'ETIMEDOUT',
@@ -106,6 +107,52 @@ function extractErrorCode(err: unknown): string | undefined {
     return extractErrorCode(record['cause']);
   }
   return undefined;
+}
+
+const SECRET_HEADER_NAMES = new Set(['authorization', 'x-api-key', 'api-key', 'x-goog-api-key']);
+const MIN_REDACTABLE_SECRET_LENGTH = 6;
+
+/** Collects credential values from outbound headers (with and without the auth scheme prefix). */
+export function collectSecretHeaderValues(headers: Record<string, string>): string[] {
+  const secrets: string[] = [];
+  for (const [name, value] of Object.entries(headers)) {
+    if (!SECRET_HEADER_NAMES.has(name.toLowerCase())) {
+      continue;
+    }
+    const trimmed = value.trim();
+    secrets.push(trimmed);
+    const schemeMatch = /^(?:Bearer|Basic|Token)\s+(.+)$/i.exec(trimmed);
+    if (schemeMatch?.[1] !== undefined) {
+      secrets.push(schemeMatch[1].trim());
+    }
+  }
+  return secrets.filter((s) => s.length >= MIN_REDACTABLE_SECRET_LENGTH);
+}
+
+/**
+ * Turns a raw upstream error body into a short, log-safe string: redacts the
+ * credentials we sent plus common token shapes, strips control characters,
+ * collapses whitespace and caps the length.
+ */
+export function sanitizeErrorBodySnippet(body: Buffer, secrets: readonly string[] = []): string {
+  let text = body.toString('utf8');
+  // Longest first so a full "Bearer xyz" is replaced before its bare "xyz" suffix.
+  for (const secret of [...secrets].sort((a, b) => b.length - a.length)) {
+    if (secret.length >= MIN_REDACTABLE_SECRET_LENGTH) {
+      text = text.split(secret).join('[REDACTED]');
+    }
+  }
+  text = text
+    .replace(/\b(Bearer|Basic)\s+[A-Za-z0-9._~+/=-]{6,}/gi, '$1 [REDACTED]')
+    .replace(/\b(?:sk|pk|rk)-[A-Za-z0-9_-]{8,}/g, '[REDACTED]')
+    // eslint-disable-next-line no-control-regex
+    .replace(/[\u0000-\u001f\u007f]+/g, ' ')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+  if (text.length > MAX_LOGGED_ERROR_BODY_CHARS) {
+    text = `${text.slice(0, MAX_LOGGED_ERROR_BODY_CHARS)}…`;
+  }
+  return text;
 }
 
 async function readBoundedBody(
@@ -220,25 +267,32 @@ export class HttpClient {
 
       if (statusCode < 200 || statusCode >= 300) {
         // Drain bounded snippet and destroy remainder to avoid leaking keep-alive sockets
+        let upstreamBody: string | undefined;
         try {
-          await readBoundedBody(response.body, MAX_ERROR_BODY_BYTES, false, options.engine);
+          const errorBuf = await readBoundedBody(
+            response.body,
+            MAX_ERROR_BODY_BYTES,
+            false,
+            options.engine,
+          );
+          upstreamBody = sanitizeErrorBodySnippet(errorBuf, collectSecretHeaderValues(headers));
         } catch {
           if (typeof response.body.destroy === 'function') {
             response.body.destroy();
           }
         }
 
+        const logFields: Record<string, unknown> = {
+          engine: options.engine,
+          provider: options.provider,
+          requestId: options.requestId,
+          statusCode,
+          url: sanitizeUrlForLog(options.url),
+          ...(upstreamBody !== undefined && upstreamBody.length > 0 ? { upstreamBody } : {}),
+        };
+
         if (statusCode === 401 || statusCode === 403) {
-          this.logger?.error(
-            {
-              engine: options.engine,
-              provider: options.provider,
-              requestId: options.requestId,
-              statusCode,
-              url: sanitizeUrlForLog(options.url),
-            },
-            'Upstream authentication or quota error',
-          );
+          this.logger?.error(logFields, 'Upstream authentication or quota error');
           throw new GatewayError(
             503,
             'UPSTREAM_AUTH_OR_QUOTA',
@@ -248,6 +302,14 @@ export class HttpClient {
               engine: options.engine,
             },
           );
+        }
+
+        const isRetryableStatus =
+          statusCode === 408 || statusCode === 429 || (statusCode >= 500 && statusCode <= 599);
+        if (isRetryableStatus) {
+          this.logger?.debug(logFields, 'Upstream returned retryable HTTP error');
+        } else {
+          this.logger?.warn(logFields, 'Upstream rejected request');
         }
 
         if (statusCode === 408) {

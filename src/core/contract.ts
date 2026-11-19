@@ -78,6 +78,7 @@ export const gatewayErrorCodeSchema = z.enum([
   'ENGINE_NOT_CONFIGURED',
   'UPSTREAM_BAD_RESPONSE',
   'UPSTREAM_AUTH_OR_QUOTA',
+  'INTERNAL_ERROR',
 ]);
 
 export const errorEnvelopeSchema = z.object({

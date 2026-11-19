@@ -1,3 +1,4 @@
+import { setTimeout as sleep } from 'node:timers/promises';
 import { buildApp } from './app.js';
 import { loadConfig } from './config.js';
 
@@ -16,18 +17,24 @@ async function main(): Promise<void> {
     shuttingDown = true;
 
     app.markShuttingDown();
-    app.log.info({ signal }, 'Received shutdown signal; draining in-flight requests');
+    const graceMs = config.server.shutdownGraceMs;
+    app.log.info(
+      { signal, graceMs },
+      'Received shutdown signal; /ready now returns 503, waiting for load balancer to drain',
+    );
 
+    const forceTimeoutMs = graceMs + SHUTDOWN_DRAIN_TIMEOUT_MS;
     const forceTimer = setTimeout(() => {
-      app.log.error(
-        { timeoutMs: SHUTDOWN_DRAIN_TIMEOUT_MS },
-        'Graceful shutdown drain timed out; forcing exit',
-      );
+      app.log.error({ timeoutMs: forceTimeoutMs }, 'Graceful shutdown timed out; forcing exit');
       process.exit(1);
-    }, SHUTDOWN_DRAIN_TIMEOUT_MS);
+    }, forceTimeoutMs);
     forceTimer.unref();
 
     try {
+      if (graceMs > 0) {
+        await sleep(graceMs);
+      }
+      app.log.info('Closing listener and draining in-flight requests');
       await app.close();
       clearTimeout(forceTimer);
       app.log.info('SonarGate server closed cleanly');

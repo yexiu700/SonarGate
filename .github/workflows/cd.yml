@@ -34,7 +34,7 @@ jobs:
     steps:
       - name: Checkout repository
         if: ${{ inputs.rollback_tag == '' }}
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           ref: ${{ inputs.ref || 'main' }}
 
@@ -63,7 +63,7 @@ jobs:
 
       - name: Setup Docker Buildx
         if: ${{ inputs.rollback_tag == '' }}
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
 
       - name: Log in to GHCR
         if: ${{ inputs.rollback_tag == '' }}
@@ -75,7 +75,7 @@ jobs:
 
       - name: Build and push Docker image to GHCR
         if: ${{ inputs.rollback_tag == '' }}
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: ./Dockerfile
@@ -93,7 +93,7 @@ jobs:
     timeout-minutes: 15
     steps:
       - name: Checkout deployment manifests
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           ref: ${{ inputs.ref || 'main' }}
 

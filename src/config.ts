@@ -19,6 +19,8 @@ export interface AppConfig {
     port: number;
     nodeEnv: NodeEnv;
     logLevel: LogLevel;
+    /** Delay between flipping /ready to 503 and closing the listener, so load balancers can drain. */
+    shutdownGraceMs: number;
   };
   auth: {
     gatewayApiKeys: readonly string[];
@@ -29,6 +31,8 @@ export interface AppConfig {
     overseasTimeoutMs: number;
     maxUpstreamRetries: number;
     retryBaseDelayMs: number;
+    /** A retry is skipped if less than this much of the gateway deadline would remain after backoff. */
+    retryMinRemainingBudgetMs: number;
     semaphoreWaitMs: number;
     domesticConcurrencyPerEngine: number;
     dataforseoConcurrency: number;
@@ -220,6 +224,7 @@ const rawEnvSchema = z
     ),
     GATEWAY_API_KEYS: z.string().optional(),
     GATEWAY_API_KEY: z.string().optional(),
+    SHUTDOWN_GRACE_MS: intEnv(0, 60_000, 5_000),
 
     // Budget, Resilience & Cache
     GATEWAY_REQUEST_TIMEOUT_MS: intEnv(1_000, 600_000, 105_000),
@@ -227,6 +232,7 @@ const rawEnvSchema = z
     OVERSEAS_TIMEOUT_MS: intEnv(1_000, 300_000, 85_000),
     MAX_UPSTREAM_RETRIES: intEnv(0, 10, 2),
     RETRY_BASE_DELAY_MS: intEnv(50, 30_000, 1_000),
+    RETRY_MIN_REMAINING_BUDGET_MS: intEnv(0, 600_000, 12_000),
     SEMAPHORE_WAIT_MS: intEnv(100, 120_000, 15_000),
     DOMESTIC_CONCURRENCY_PER_ENGINE: intEnv(1, 100, 5),
     DATAFORSEO_CONCURRENCY: intEnv(1, 200, 10),
@@ -384,6 +390,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       port: data.PORT,
       nodeEnv: data.NODE_ENV,
       logLevel: data.LOG_LEVEL,
+      shutdownGraceMs: data.SHUTDOWN_GRACE_MS,
     },
     auth: {
       gatewayApiKeys,
@@ -394,6 +401,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       overseasTimeoutMs: data.OVERSEAS_TIMEOUT_MS,
       maxUpstreamRetries: data.MAX_UPSTREAM_RETRIES,
       retryBaseDelayMs: data.RETRY_BASE_DELAY_MS,
+      retryMinRemainingBudgetMs: data.RETRY_MIN_REMAINING_BUDGET_MS,
       semaphoreWaitMs: data.SEMAPHORE_WAIT_MS,
       domesticConcurrencyPerEngine: data.DOMESTIC_CONCURRENCY_PER_ENGINE,
       dataforseoConcurrency: data.DATAFORSEO_CONCURRENCY,
@@ -503,6 +511,40 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       },
     },
   };
+}
+
+/**
+ * Detects budget settings that are individually valid but interact in surprising ways.
+ * These are reported as warnings (not errors) so existing deployments keep starting.
+ */
+export function getConfigWarnings(config: AppConfig): string[] {
+  const warnings: string[] = [];
+  const { budget } = config;
+
+  for (const [name, value] of [
+    ['DOMESTIC_TIMEOUT_MS', budget.domesticTimeoutMs],
+    ['OVERSEAS_TIMEOUT_MS', budget.overseasTimeoutMs],
+  ] as const) {
+    if (value > budget.gatewayRequestTimeoutMs) {
+      warnings.push(
+        `${name} (${value}) exceeds GATEWAY_REQUEST_TIMEOUT_MS (${budget.gatewayRequestTimeoutMs}); ` +
+          'upstream attempts will be capped by the gateway deadline.',
+      );
+    }
+  }
+
+  if (
+    budget.maxUpstreamRetries > 0 &&
+    budget.gatewayRequestTimeoutMs - budget.retryBaseDelayMs < budget.retryMinRemainingBudgetMs
+  ) {
+    warnings.push(
+      `MAX_UPSTREAM_RETRIES=${budget.maxUpstreamRetries} has no effect: GATEWAY_REQUEST_TIMEOUT_MS ` +
+        `(${budget.gatewayRequestTimeoutMs}) minus RETRY_BASE_DELAY_MS (${budget.retryBaseDelayMs}) ` +
+        `is below RETRY_MIN_REMAINING_BUDGET_MS (${budget.retryMinRemainingBudgetMs}), so retries are never attempted.`,
+    );
+  }
+
+  return warnings;
 }
 
 function resolveOverseasEngineConfig(

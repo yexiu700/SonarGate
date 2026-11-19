@@ -53,6 +53,7 @@ export const GATEWAY_ERROR_CODES = [
   'ENGINE_NOT_CONFIGURED',
   'UPSTREAM_BAD_RESPONSE',
   'UPSTREAM_AUTH_OR_QUOTA',
+  'INTERNAL_ERROR',
 ] as const;
 
 export type GatewayErrorCode = (typeof GATEWAY_ERROR_CODES)[number];

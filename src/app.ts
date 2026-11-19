@@ -4,10 +4,10 @@ import Fastify, {
   type FastifyInstance,
   type FastifyServerOptions,
 } from 'fastify';
-import { loadConfig, type AppConfig } from './config.js';
+import { getConfigWarnings, loadConfig, type AppConfig } from './config.js';
 import { ResponseCache } from './core/cache.js';
 import type { CollectResponse } from './core/contract.js';
-import { invalidRequestError, isGatewayError } from './core/errors.js';
+import { internalError, invalidRequestError, isGatewayError } from './core/errors.js';
 import { HttpClient } from './core/http-client.js';
 import { EngineRegistry } from './core/registry.js';
 import { createAuthPreHandler } from './middleware/auth.js';
@@ -79,6 +79,10 @@ export function buildApp(options: BuildAppOptions = {}): SonarGateApp {
       return randomUUID();
     },
   });
+
+  for (const warning of getConfigWarnings(config)) {
+    app.log.warn({ config: 'budget' }, warning);
+  }
 
   app.decorate('markShuttingDown', (): void => {
     shuttingDown = true;
@@ -168,14 +172,7 @@ export function buildApp(options: BuildAppOptions = {}): SonarGateApp {
     }
 
     request.log.error({ err, requestId: request.id }, 'Unhandled gateway error');
-    return reply.code(502).send({
-      error: {
-        code: 'UPSTREAM_BAD_RESPONSE',
-        message: 'Internal gateway error',
-        retryable: false,
-        requestId: request.id,
-      },
-    });
+    return reply.code(500).send(internalError().toErrorEnvelope(request.id));
   });
 
   app.setNotFoundHandler((request, reply) => {

@@ -8,7 +8,8 @@ export type GatewayErrorCode =
   | 'RATE_LIMITED'
   | 'ENGINE_NOT_CONFIGURED'
   | 'UPSTREAM_BAD_RESPONSE'
-  | 'UPSTREAM_AUTH_OR_QUOTA';
+  | 'UPSTREAM_AUTH_OR_QUOTA'
+  | 'INTERNAL_ERROR';
 
 export const ERROR_STATUS_MAP: Readonly<Record<GatewayErrorCode, number>> = {
   INVALID_REQUEST: 400,
@@ -19,6 +20,7 @@ export const ERROR_STATUS_MAP: Readonly<Record<GatewayErrorCode, number>> = {
   ENGINE_NOT_CONFIGURED: 501,
   UPSTREAM_BAD_RESPONSE: 502,
   UPSTREAM_AUTH_OR_QUOTA: 503,
+  INTERNAL_ERROR: 500,
 };
 
 export const ERROR_DEFAULT_RETRYABLE: Readonly<Record<GatewayErrorCode, boolean>> = {
@@ -30,6 +32,7 @@ export const ERROR_DEFAULT_RETRYABLE: Readonly<Record<GatewayErrorCode, boolean>
   ENGINE_NOT_CONFIGURED: false,
   UPSTREAM_BAD_RESPONSE: true,
   UPSTREAM_AUTH_OR_QUOTA: false,
+  INTERNAL_ERROR: false,
 };
 
 export interface GatewayErrorOptions {
@@ -151,6 +154,12 @@ export function upstreamAuthOrQuotaError(
 ): GatewayError {
   return new GatewayError(503, 'UPSTREAM_AUTH_OR_QUOTA', message, {
     ...options,
+    retryable: false,
+  });
+}
+
+export function internalError(message = 'Internal gateway error'): GatewayError {
+  return new GatewayError(500, 'INTERNAL_ERROR', message, {
     retryable: false,
   });
 }

@@ -1,7 +1,8 @@
 import type { AppConfig } from '../../config.js';
-import { engineNotConfiguredError, upstreamBadResponseError } from '../../core/errors.js';
+import { engineNotConfiguredError } from '../../core/errors.js';
 import type { HttpClient } from '../../core/http-client.js';
 import type { AdapterResult, CollectContext, EngineAdapter } from '../../core/types.js';
+import { postChatCompletion } from '../shared/chat-completions.js';
 import {
   asNonEmptyString,
   asNonNegativeInt,
@@ -9,10 +10,9 @@ import {
   dedupeQueryStrings,
   extractStringQueries,
   isRecord,
-  mergeDomesticCitations,
+  mergeCitations,
   shallowMergeRecord,
-  trimTrailingSlashes,
-} from './helpers.js';
+} from '../shared/parsing.js';
 
 export type DoubaoConfig = AppConfig['domestic']['doubao'];
 
@@ -38,7 +38,6 @@ export class DoubaoAdapter implements EngineAdapter {
       throw engineNotConfiguredError(this.engine);
     }
 
-    const url = `${trimTrailingSlashes(this.config.baseUrl)}/responses`;
     const baseBody: Record<string, unknown> = {
       model: this.config.model.trim(),
       input: [{ role: 'user', content: ctx.prompt }],
@@ -53,24 +52,16 @@ export class DoubaoAdapter implements EngineAdapter {
     };
     const body = shallowMergeRecord(baseBody, this.config.extraBody);
 
-    const response = await this.httpClient.postJson<unknown>(url, body, {
-      headers: {
-        Authorization: `Bearer ${this.config.apiKey.trim()}`,
-      },
-      timeoutMs: ctx.timeoutMs,
-      signal: ctx.signal,
+    const data = await postChatCompletion({
+      httpClient: this.httpClient,
+      baseUrl: this.config.baseUrl,
+      apiKey: this.config.apiKey,
+      body,
+      ctx,
       engine: this.engine,
       provider: this.provider,
-      requestId: ctx.requestId,
+      endpointPath: '/responses',
     });
-
-    const data = response.data;
-    if (!isRecord(data)) {
-      throw upstreamBadResponseError('Upstream returned non-object JSON payload', {
-        engine: this.engine,
-        retryable: true,
-      });
-    }
 
     const textParts: string[] = [];
     const urlAnnotations: Record<string, unknown>[] = [];
@@ -116,7 +107,7 @@ export class DoubaoAdapter implements EngineAdapter {
     const answerText =
       joinedText.trim().length > 0 ? joinedText : (asString(data['output_text']) ?? '');
 
-    const citations = mergeDomesticCitations([urlAnnotations, data['references']]);
+    const citations = mergeCitations([urlAnnotations, data['references']]);
     const fanOutQueries = dedupeQueryStrings(rawQueries);
 
     const usage = isRecord(data['usage']) ? data['usage'] : undefined;

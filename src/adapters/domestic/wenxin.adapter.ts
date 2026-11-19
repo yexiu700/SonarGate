@@ -1,18 +1,20 @@
 import type { AppConfig } from '../../config.js';
-import { engineNotConfiguredError, upstreamBadResponseError } from '../../core/errors.js';
+import { engineNotConfiguredError } from '../../core/errors.js';
 import type { HttpClient } from '../../core/http-client.js';
 import type { AdapterResult, CollectContext, EngineAdapter } from '../../core/types.js';
 import {
+  buildChatCompletionMeta,
+  extractChatCompletionParts,
+  postChatCompletion,
+} from '../shared/chat-completions.js';
+import {
   asNonEmptyString,
-  asNonNegativeInt,
   asString,
   dedupeQueryStrings,
-  extractChatCompletionParts,
-  extractDomesticCitations,
+  extractCitations,
   extractStringQueries,
   isRecord,
-  trimTrailingSlashes,
-} from './helpers.js';
+} from '../shared/parsing.js';
 
 export type WenxinConfig = AppConfig['domestic']['wenxin'];
 
@@ -67,61 +69,45 @@ export class WenxinAdapter implements EngineAdapter {
       throw engineNotConfiguredError(this.engine);
     }
 
-    const url = `${trimTrailingSlashes(this.config.baseUrl)}/chat/completions`;
-    const body = {
-      model: this.config.model.trim(),
-      messages: [{ role: 'user', content: ctx.prompt }],
-      temperature: 0.2,
-      stream: false,
-      web_search: {
-        enable: true,
-        enable_citation: true,
-        enable_trace: true,
+    const data = await postChatCompletion({
+      httpClient: this.httpClient,
+      baseUrl: this.config.baseUrl,
+      apiKey: this.config.apiKey,
+      body: {
+        model: this.config.model.trim(),
+        messages: [{ role: 'user', content: ctx.prompt }],
+        temperature: 0.2,
+        stream: false,
+        web_search: {
+          enable: true,
+          enable_citation: true,
+          enable_trace: true,
+        },
       },
-    };
-
-    const response = await this.httpClient.postJson<unknown>(url, body, {
-      headers: {
-        Authorization: `Bearer ${this.config.apiKey.trim()}`,
-      },
-      timeoutMs: ctx.timeoutMs,
-      signal: ctx.signal,
+      ctx,
       engine: this.engine,
       provider: this.provider,
-      requestId: ctx.requestId,
     });
-
-    const data = response.data;
-    if (!isRecord(data)) {
-      throw upstreamBadResponseError('Upstream returned non-object JSON payload', {
-        engine: this.engine,
-        retryable: true,
-      });
-    }
 
     const { message, usage, id, model } = extractChatCompletionParts(data);
     const answerText = asString(message?.['content']) ?? '';
-    const citations = extractDomesticCitations(data['search_results']);
+    const citations = extractCitations(data['search_results']);
     const fanOutQueries = dedupeQueryStrings([
       ...extractSearchTraceQueries(data['search_trace']),
       ...extractStringQueries(data['search_queries']),
     ]);
 
-    const responseModel = model ?? this.model;
-    const tokensIn = asNonNegativeInt(usage?.['prompt_tokens']);
-    const tokensOut = asNonNegativeInt(usage?.['completion_tokens']);
-
     return {
       answerText,
       citations,
       fanOutQueries,
-      rawMeta: {
+      rawMeta: buildChatCompletionMeta({
         provider: this.provider,
-        ...(responseModel !== undefined ? { model: responseModel } : {}),
-        ...(id !== undefined ? { upstreamRequestId: id } : {}),
-        ...(tokensIn !== undefined ? { tokensIn } : {}),
-        ...(tokensOut !== undefined ? { tokensOut } : {}),
-      },
+        responseModel: model,
+        fallbackModel: this.model,
+        upstreamRequestId: id,
+        usage,
+      }),
     };
   }
 }

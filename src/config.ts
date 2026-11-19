@@ -361,6 +361,22 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
 
   const data = result.data;
   const gatewayApiKeys = parseGatewayApiKeys(data.GATEWAY_API_KEYS, data.GATEWAY_API_KEY);
+  const relayFallback = {
+    provider: data.OVERSEAS_PROVIDER,
+    baseUrl: data.OVERSEAS_RELAY_BASE_URL,
+    apiKey: data.OVERSEAS_RELAY_API_KEY,
+  };
+
+  const geminiEngineConfig = resolveOverseasEngineConfig(
+    {
+      provider: data.GEMINI_PROVIDER,
+      baseUrl: data.GEMINI_BASE_URL,
+      apiKey: data.GEMINI_API_KEY,
+      model: data.GEMINI_MODEL,
+      extraBody: data.GEMINI_EXTRA_BODY_JSON,
+    },
+    relayFallback,
+  );
 
   return {
     server: {
@@ -439,46 +455,78 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
         apiKey: data.OVERSEAS_RELAY_API_KEY,
       },
       engines: {
-        chatgpt: {
-          provider: data.CHATGPT_PROVIDER ?? data.OVERSEAS_PROVIDER,
-          baseUrl: data.CHATGPT_BASE_URL || data.OVERSEAS_RELAY_BASE_URL,
-          apiKey: data.CHATGPT_API_KEY || data.OVERSEAS_RELAY_API_KEY,
-          model: data.CHATGPT_MODEL,
-          extraBody: data.CHATGPT_EXTRA_BODY_JSON,
-        },
-        perplexity: {
-          provider: data.PERPLEXITY_PROVIDER ?? data.OVERSEAS_PROVIDER,
-          baseUrl: data.PERPLEXITY_BASE_URL || data.OVERSEAS_RELAY_BASE_URL,
-          apiKey: data.PERPLEXITY_API_KEY || data.OVERSEAS_RELAY_API_KEY,
-          model: data.PERPLEXITY_MODEL,
-          extraBody: data.PERPLEXITY_EXTRA_BODY_JSON,
-        },
-        gemini: {
-          provider: data.GEMINI_PROVIDER ?? data.OVERSEAS_PROVIDER,
-          baseUrl: data.GEMINI_BASE_URL || data.OVERSEAS_RELAY_BASE_URL,
-          apiKey: data.GEMINI_API_KEY || data.OVERSEAS_RELAY_API_KEY,
-          model: data.GEMINI_MODEL,
-          extraBody: data.GEMINI_EXTRA_BODY_JSON,
-        },
-        claude: {
-          provider: data.CLAUDE_PROVIDER ?? data.OVERSEAS_PROVIDER,
-          baseUrl: data.CLAUDE_BASE_URL || data.OVERSEAS_RELAY_BASE_URL,
-          apiKey: data.CLAUDE_API_KEY || data.OVERSEAS_RELAY_API_KEY,
-          model: data.CLAUDE_MODEL,
-          extraBody: data.CLAUDE_EXTRA_BODY_JSON,
-        },
+        chatgpt: resolveOverseasEngineConfig(
+          {
+            provider: data.CHATGPT_PROVIDER,
+            baseUrl: data.CHATGPT_BASE_URL,
+            apiKey: data.CHATGPT_API_KEY,
+            model: data.CHATGPT_MODEL,
+            extraBody: data.CHATGPT_EXTRA_BODY_JSON,
+          },
+          relayFallback,
+        ),
+        perplexity: resolveOverseasEngineConfig(
+          {
+            provider: data.PERPLEXITY_PROVIDER,
+            baseUrl: data.PERPLEXITY_BASE_URL,
+            apiKey: data.PERPLEXITY_API_KEY,
+            model: data.PERPLEXITY_MODEL,
+            extraBody: data.PERPLEXITY_EXTRA_BODY_JSON,
+          },
+          relayFallback,
+        ),
+        gemini: geminiEngineConfig,
+        claude: resolveOverseasEngineConfig(
+          {
+            provider: data.CLAUDE_PROVIDER,
+            baseUrl: data.CLAUDE_BASE_URL,
+            apiKey: data.CLAUDE_API_KEY,
+            model: data.CLAUDE_MODEL,
+            extraBody: data.CLAUDE_EXTRA_BODY_JSON,
+          },
+          relayFallback,
+        ),
         // TODO: google_aio uses the Gemini openai_compat config as a placeholder until a dedicated SERP/AIO provider is added.
-        google_aio: {
-          provider: data.GOOGLE_AIO_PROVIDER ?? data.OVERSEAS_PROVIDER,
-          baseUrl: data.GOOGLE_AIO_BASE_URL || data.GEMINI_BASE_URL || data.OVERSEAS_RELAY_BASE_URL,
-          apiKey: data.GOOGLE_AIO_API_KEY || data.GEMINI_API_KEY || data.OVERSEAS_RELAY_API_KEY,
-          model: data.GOOGLE_AIO_MODEL || data.GEMINI_MODEL,
-          extraBody:
-            Object.keys(data.GOOGLE_AIO_EXTRA_BODY_JSON).length > 0
-              ? data.GOOGLE_AIO_EXTRA_BODY_JSON
-              : data.GEMINI_EXTRA_BODY_JSON,
-        },
+        google_aio: resolveOverseasEngineConfig(
+          {
+            provider: data.GOOGLE_AIO_PROVIDER,
+            baseUrl: data.GOOGLE_AIO_BASE_URL,
+            apiKey: data.GOOGLE_AIO_API_KEY,
+            model: data.GOOGLE_AIO_MODEL,
+            extraBody: data.GOOGLE_AIO_EXTRA_BODY_JSON,
+          },
+          {
+            ...geminiEngineConfig,
+            provider: data.OVERSEAS_PROVIDER,
+          },
+        ),
       },
     },
+  };
+}
+
+function resolveOverseasEngineConfig(
+  override: {
+    provider: OverseasProviderMode | undefined;
+    baseUrl: string;
+    apiKey: string;
+    model: string;
+    extraBody: Record<string, unknown>;
+  },
+  fallback: {
+    provider: OverseasProviderMode;
+    baseUrl: string;
+    apiKey: string;
+    model?: string;
+    extraBody?: Record<string, unknown>;
+  },
+): OverseasEngineOpenAiConfig {
+  return {
+    provider: override.provider ?? fallback.provider,
+    baseUrl: override.baseUrl || fallback.baseUrl,
+    apiKey: override.apiKey || fallback.apiKey,
+    model: override.model || fallback.model || '',
+    extraBody:
+      Object.keys(override.extraBody).length > 0 ? override.extraBody : (fallback.extraBody ?? {}),
   };
 }

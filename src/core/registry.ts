@@ -5,11 +5,13 @@ import { TongyiAdapter } from '../adapters/domestic/tongyi.adapter.js';
 import { WenxinAdapter } from '../adapters/domestic/wenxin.adapter.js';
 import { ZhipuAdapter } from '../adapters/domestic/zhipu.adapter.js';
 import { createDataForSeoAdapters } from '../adapters/overseas/dataforseo.adapter.js';
+import { OpenAiCompatOverseasAdapter } from '../adapters/overseas/openai-compat.adapter.js';
 import {
-  OpenAiCompatOverseasAdapter,
-  type OverseasEngine,
-} from '../adapters/overseas/openai-compat.adapter.js';
-import { SUPPORTED_ENGINES, isSupportedEngine, type SupportedEngine } from './contract.js';
+  OVERSEAS_ENGINES,
+  SUPPORTED_ENGINES,
+  isSupportedEngine,
+  type SupportedEngine,
+} from './contract.js';
 import { engineNotConfiguredError, unsupportedEngineError } from './errors.js';
 import type { HttpClient } from './http-client.js';
 import { Semaphore } from './semaphore.js';
@@ -26,14 +28,6 @@ export interface EngineRegistryOptions {
   dataforseoConcurrency: number;
   semaphoreWaitMs: number;
 }
-
-const OVERSEAS_ENGINES: readonly OverseasEngine[] = [
-  'chatgpt',
-  'perplexity',
-  'gemini',
-  'claude',
-  'google_aio',
-];
 
 export class EngineRegistry {
   private readonly adapters = new Map<SupportedEngine, EngineAdapter>();

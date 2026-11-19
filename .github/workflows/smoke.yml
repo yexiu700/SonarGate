@@ -70,7 +70,7 @@ jobs:
 
       - name: Setup pnpm
         if: ${{ inputs.target_url == '' }}
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v6
 
       - name: Setup Node.js
         uses: actions/setup-node@v7

@@ -1,4 +1,5 @@
 import type { AdapterResult, RawCitation } from '../../core/types.js';
+import { asNonEmptyString, isRecord } from '../shared/parsing.js';
 
 export const NO_AI_OVERVIEW_TEXT = '[NO_AI_OVERVIEW] 该查询未触发 Google AI Overview。';
 
@@ -10,18 +11,6 @@ export interface DataForSeoParseMeta {
 
 const DEFAULT_SNIPPET_KEYS = ['snippet', 'description', 'text', 'content'] as const;
 const AIO_SNIPPET_KEYS = ['text', 'snippet', 'description'] as const;
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-function asNonEmptyString(value: unknown): string | undefined {
-  if (typeof value !== 'string') {
-    return undefined;
-  }
-  const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : undefined;
-}
 
 function asNonNegativeInt(value: unknown): number | undefined {
   if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) {

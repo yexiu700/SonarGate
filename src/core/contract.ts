@@ -1,11 +1,8 @@
 import { z } from 'zod';
 
-export const SUPPORTED_ENGINES = [
-  'doubao',
-  'deepseek',
-  'tongyi',
-  'zhipu',
-  'wenxin',
+export const DOMESTIC_ENGINES = ['doubao', 'deepseek', 'tongyi', 'zhipu', 'wenxin'] as const;
+
+export const OVERSEAS_ENGINES = [
   'chatgpt',
   'perplexity',
   'gemini',
@@ -13,6 +10,10 @@ export const SUPPORTED_ENGINES = [
   'google_aio',
 ] as const;
 
+export const SUPPORTED_ENGINES = [...DOMESTIC_ENGINES, ...OVERSEAS_ENGINES] as const;
+
+export type DomesticEngine = (typeof DOMESTIC_ENGINES)[number];
+export type OverseasEngine = (typeof OVERSEAS_ENGINES)[number];
 export type SupportedEngine = (typeof SUPPORTED_ENGINES)[number];
 
 export const SUPPORTED_ENGINE_SET: ReadonlySet<string> = new Set(SUPPORTED_ENGINES);

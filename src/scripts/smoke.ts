@@ -1,23 +1,6 @@
-import { z } from 'zod';
 import { buildApp } from '../app.js';
 import { loadConfig } from '../config.js';
-
-const remoteScraperResponseSchema = z.object({
-  answerText: z.string().min(1).max(200_000),
-  citations: z
-    .array(
-      z.object({
-        url: z.string().min(1).max(2048),
-        title: z.string().max(300).optional(),
-        snippet: z.string().max(1000).optional(),
-        position: z.number().int().positive().optional(),
-      }),
-    )
-    .max(100)
-    .default([]),
-  fanOutQueries: z.array(z.string().max(300)).max(50).default([]),
-  rawMeta: z.record(z.unknown()).optional(),
-});
+import { collectResponseSchema } from '../core/contract.js';
 
 interface SmokeCliArgs {
   engine?: string | undefined;
@@ -201,7 +184,7 @@ async function run(): Promise<void> {
         continue;
       }
 
-      const validation = remoteScraperResponseSchema.safeParse(jsonBody);
+      const validation = collectResponseSchema.safeParse(jsonBody);
       if (!validation.success) {
         console.error('GeoMix Schema: FAIL', validation.error.issues);
         allPassed = false;

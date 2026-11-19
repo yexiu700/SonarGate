@@ -1,7 +1,6 @@
 import type { OverseasEngineOpenAiConfig } from '../../config.js';
-import { engineNotConfiguredError, upstreamBadResponseError } from '../../core/errors.js';
-
-export type OverseasEngine = 'chatgpt' | 'perplexity' | 'gemini' | 'claude' | 'google_aio';
+import type { OverseasEngine } from '../../core/contract.js';
+import { engineNotConfiguredError } from '../../core/errors.js';
 import type { HttpClient } from '../../core/http-client.js';
 import type {
   AdapterResult,
@@ -10,17 +9,19 @@ import type {
   RawCitation,
 } from '../../core/types.js';
 import {
+  buildChatCompletionMeta,
+  extractChatCompletionParts,
+  postChatCompletion,
+} from '../shared/chat-completions.js';
+import {
   asNonEmptyString,
-  asNonNegativeInt,
   asString,
   dedupeQueryStrings,
   deepMergeRecords,
-  extractChatCompletionParts,
   extractStringQueries,
   isRecord,
-  mergeDomesticCitations,
-  trimTrailingSlashes,
-} from '../domestic/helpers.js';
+  mergeCitations,
+} from '../shared/parsing.js';
 
 function extractAnswerText(message: Record<string, unknown> | undefined): string {
   if (message === undefined) {
@@ -186,40 +187,32 @@ export class OpenAiCompatOverseasAdapter implements EngineAdapter {
       throw engineNotConfiguredError(this.engine);
     }
 
-    const url = `${trimTrailingSlashes(this.config.baseUrl)}/chat/completions`;
-    const baseBody: Record<string, unknown> = {
-      model: this.config.model.trim(),
-      messages: [{ role: 'user', content: ctx.prompt }],
-      temperature: 0.2,
-      stream: false,
-    };
-    const body = deepMergeRecords(baseBody, this.config.extraBody);
-
-    const response = await this.httpClient.postJson<unknown>(url, body, {
-      headers: {
-        Authorization: `Bearer ${this.config.apiKey.trim()}`,
+    const body = deepMergeRecords(
+      {
+        model: this.config.model.trim(),
+        messages: [{ role: 'user', content: ctx.prompt }],
+        temperature: 0.2,
+        stream: false,
       },
-      timeoutMs: ctx.timeoutMs,
-      signal: ctx.signal,
+      this.config.extraBody,
+    );
+
+    const data = await postChatCompletion({
+      httpClient: this.httpClient,
+      baseUrl: this.config.baseUrl,
+      apiKey: this.config.apiKey,
+      body,
+      ctx,
       engine: this.engine,
       provider: this.provider,
-      requestId: ctx.requestId,
     });
-
-    const data = response.data;
-    if (!isRecord(data)) {
-      throw upstreamBadResponseError('Upstream returned non-object JSON payload', {
-        engine: this.engine,
-        retryable: true,
-      });
-    }
 
     const { message, usage, id, model } = extractChatCompletionParts(data);
     const answerText = extractAnswerText(message);
     const grounding = extractGroundingMetadata(data, message);
 
     const annotationCitations = extractOpenAiAnnotations(message?.['annotations']);
-    const genericCitations = mergeDomesticCitations([
+    const genericCitations = mergeCitations([
       data['citations'],
       data['search_results'],
       data['web_search'],
@@ -240,23 +233,19 @@ export class OpenAiCompatOverseasAdapter implements EngineAdapter {
       ...grounding.queries,
     ]);
 
-    const responseModel = model ?? this.model;
-    const tokensIn = asNonNegativeInt(usage?.['prompt_tokens']);
-    const tokensOut = asNonNegativeInt(usage?.['completion_tokens']);
-
     return {
       answerText,
       citations,
       fanOutQueries,
-      rawMeta: {
+      rawMeta: buildChatCompletionMeta({
         provider: this.provider,
-        ...(responseModel !== undefined ? { model: responseModel } : {}),
-        ...(id !== undefined ? { upstreamRequestId: id } : {}),
-        ...(tokensIn !== undefined ? { tokensIn } : {}),
-        ...(tokensOut !== undefined ? { tokensOut } : {}),
+        responseModel: model,
+        fallbackModel: this.model,
+        upstreamRequestId: id,
+        usage,
         // TODO: Remove placeholder marker once google_aio has a dedicated non-DataForSEO SERP/AIO adapter.
-        ...(this.engine === 'google_aio' ? { placeholder: 'gemini_openai_compat' } : {}),
-      },
+        ...(this.engine === 'google_aio' ? { extra: { placeholder: 'gemini_openai_compat' } } : {}),
+      }),
     };
   }
 }

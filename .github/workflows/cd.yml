@@ -75,7 +75,7 @@ jobs:
 
       - name: Build and push Docker image to GHCR
         if: ${{ inputs.rollback_tag == '' }}
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: ./Dockerfile

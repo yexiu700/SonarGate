@@ -14,9 +14,9 @@
 - **Unified GeoMix Contract**: Consistent `POST /v1/collect` JSON response (`answerText`, `citations`, `fanOutQueries`, `rawMeta`) with a 6-step normalization pipeline and 1.9 MB 3-tier byte guard.
 - **10 Supported AI Search Engines**:
   - **Domestic (5)**: `doubao` (Volcengine Ark), `deepseek`, `tongyi` (Alibaba DashScope), `zhipu` (BigModel), `wenxin` (Baidu Qianfan V2)
-  - **Overseas via DataForSEO (5)**: `chatgpt`, `perplexity`, `gemini` (`scraper` / `responses` modes), `claude`, `google_aio` (with `<60`-char `[NO_AI_OVERVIEW]` fallback & short TTL)
+  - **Overseas (5)**: `chatgpt`, `perplexity`, `gemini`, `claude`, `google_aio` — supports both **DataForSEO** (Basic Auth, native web scraping & Google AI Overview) and **OpenAI-compatible relays** (NewAPI / SubAPI / OpenRouter via `OVERSEAS_RELAY_BASE_URL` + `OVERSEAS_RELAY_API_KEY`, with per-engine overrides; `google_aio` uses Gemini as an `openai_compat` placeholder).
 - **Resilience & Isolation**:
-  - Per-engine semaphores for domestic engines and a shared semaphore pool for DataForSEO.
+  - Per-engine semaphores for domestic engines and a shared semaphore pool for overseas engines.
   - Deadline-aware exponential backoff retry (`Retry-After` aware) bounded by per-request budgets.
   - Singleflight in-flight deduplication + TTL-based LRU cache (`X-Bypass-Cache: true` or `noCache: true` to bypass).
 - **Security & Operations**:
@@ -37,18 +37,18 @@
 
 ### Supported Engines
 
-| Engine | Region | Provider | Default Env Key(s) |
+| Engine | Region | Provider(s) | Default Env Key(s) |
 | :--- | :--- | :--- | :--- |
 | `doubao` | Domestic | Volcengine Ark | `DOUBAO_API_KEY`, `DOUBAO_MODEL` |
 | `deepseek` | Domestic | DeepSeek | `DEEPSEEK_API_KEY` |
 | `tongyi` | Domestic | Alibaba DashScope | `TONGYI_API_KEY` |
 | `zhipu` | Domestic | Zhipu BigModel | `ZHIPU_API_KEY` |
 | `wenxin` | Domestic | Baidu Qianfan V2 | `WENXIN_API_KEY` |
-| `chatgpt` | Overseas | DataForSEO | `DATAFORSEO_LOGIN`, `DATAFORSEO_PASSWORD` |
-| `perplexity` | Overseas | DataForSEO | `DATAFORSEO_LOGIN`, `DATAFORSEO_PASSWORD` |
-| `gemini` | Overseas | DataForSEO | `DATAFORSEO_LOGIN`, `DATAFORSEO_PASSWORD` |
-| `claude` | Overseas | DataForSEO | `DATAFORSEO_LOGIN`, `DATAFORSEO_PASSWORD` |
-| `google_aio` | Overseas | DataForSEO | `DATAFORSEO_LOGIN`, `DATAFORSEO_PASSWORD` |
+| `chatgpt` | Overseas | DataForSEO / `openai_compat` (NewAPI, SubAPI) | `DATAFORSEO_*` or `OVERSEAS_RELAY_*` / `CHATGPT_*` |
+| `perplexity` | Overseas | DataForSEO / `openai_compat` (NewAPI, SubAPI) | `DATAFORSEO_*` or `OVERSEAS_RELAY_*` / `PERPLEXITY_*` |
+| `gemini` | Overseas | DataForSEO / `openai_compat` (NewAPI, SubAPI) | `DATAFORSEO_*` or `OVERSEAS_RELAY_*` / `GEMINI_*` |
+| `claude` | Overseas | DataForSEO / `openai_compat` (NewAPI, SubAPI) | `DATAFORSEO_*` or `OVERSEAS_RELAY_*` / `CLAUDE_*` |
+| `google_aio` | Overseas | DataForSEO / `openai_compat` (Gemini placeholder) | `DATAFORSEO_*` or `OVERSEAS_RELAY_*` / `GOOGLE_AIO_*` |
 
 ---
 

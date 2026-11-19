@@ -5,6 +5,10 @@ import { TongyiAdapter } from '../adapters/domestic/tongyi.adapter.js';
 import { WenxinAdapter } from '../adapters/domestic/wenxin.adapter.js';
 import { ZhipuAdapter } from '../adapters/domestic/zhipu.adapter.js';
 import { createDataForSeoAdapters } from '../adapters/overseas/dataforseo.adapter.js';
+import {
+  OpenAiCompatOverseasAdapter,
+  type OverseasEngine,
+} from '../adapters/overseas/openai-compat.adapter.js';
 import { SUPPORTED_ENGINES, isSupportedEngine, type SupportedEngine } from './contract.js';
 import { engineNotConfiguredError, unsupportedEngineError } from './errors.js';
 import type { HttpClient } from './http-client.js';
@@ -22,6 +26,14 @@ export interface EngineRegistryOptions {
   dataforseoConcurrency: number;
   semaphoreWaitMs: number;
 }
+
+const OVERSEAS_ENGINES: readonly OverseasEngine[] = [
+  'chatgpt',
+  'perplexity',
+  'gemini',
+  'claude',
+  'google_aio',
+];
 
 export class EngineRegistry {
   private readonly adapters = new Map<SupportedEngine, EngineAdapter>();
@@ -64,10 +76,33 @@ export class EngineRegistry {
       new WenxinAdapter(config.domestic.wenxin, httpClient),
     ];
 
-    const overseasAdapters = createDataForSeoAdapters({
+    const dataforseoAdapters = createDataForSeoAdapters({
       config: config.overseas.dataforseo,
       httpClient,
       ...(logger !== undefined ? { logger } : {}),
+    });
+    const dataforseoByEngine = new Map<SupportedEngine, EngineAdapter>(
+      dataforseoAdapters.map((adapter) => [adapter.engine, adapter]),
+    );
+
+    const overseasAdapters: EngineAdapter[] = OVERSEAS_ENGINES.map((engine) => {
+      const dfsAdapter = dataforseoByEngine.get(engine)!;
+      const openAiConfig = config.overseas.engines[engine];
+      const openAiAdapter = new OpenAiCompatOverseasAdapter(engine, openAiConfig, httpClient);
+
+      if (openAiConfig.provider === 'openai_compat') {
+        return openAiAdapter;
+      }
+      if (openAiConfig.provider === 'dataforseo') {
+        return dfsAdapter;
+      }
+      if (dfsAdapter.isConfigured()) {
+        return dfsAdapter;
+      }
+      if (openAiAdapter.isConfigured()) {
+        return openAiAdapter;
+      }
+      return dfsAdapter;
     });
 
     return new EngineRegistry({

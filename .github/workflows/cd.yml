@@ -63,7 +63,7 @@ jobs:
 
       - name: Setup Docker Buildx
         if: ${{ inputs.rollback_tag == '' }}
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
 
       - name: Log in to GHCR
         if: ${{ inputs.rollback_tag == '' }}

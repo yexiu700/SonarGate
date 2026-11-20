@@ -50,6 +50,25 @@
 | `claude` | Overseas | DataForSEO / `openai_compat` (NewAPI, SubAPI) | `DATAFORSEO_*` or `OVERSEAS_RELAY_*` / `CLAUDE_*` |
 | `google_aio` | Overseas | DataForSEO / `openai_compat` (Gemini placeholder) | `DATAFORSEO_*` or `OVERSEAS_RELAY_*` / `GOOGLE_AIO_*` |
 
+### Planned Engines & Error Contract (`400` vs `501`)
+
+`GET /v1/engines` returns `engines` (each with `status: "ready" | "unconfigured"`) and `plannedEngines` (`yuanbao`, `nami`, `kimi`, each with `status: "planned"`).
+
+`POST /v1/collect` separates client protocol errors (`400`) from unavailable engine capabilities (`501`):
+
+| HTTP | `error.code` | `retryable` | Semantics |
+| :--- | :--- | :--- | :--- |
+| `400` | `INVALID_REQUEST` | `false` | Malformed JSON or schema validation failure |
+| `400` | `UNSUPPORTED_ENGINE` | `false` | Unknown / invalid engine name not in gateway contract |
+| `401` | `UNAUTHORIZED` | `false` | Missing or invalid Bearer token |
+| `408` | `UPSTREAM_TIMEOUT` | `true` | Upstream request or request deadline exceeded |
+| `429` | `RATE_LIMITED` | `true` | Upstream rate limit or local semaphore saturation |
+| `501` | `ENGINE_NOT_CONFIGURED` | `false` | Supported engine adapter exists but credentials/config are missing |
+| `501` | `ENGINE_NOT_IMPLEMENTED` | `false` | Planned engine (`yuanbao`, `nami`, `kimi`) not yet implemented on gateway |
+| `502` | `UPSTREAM_BAD_RESPONSE` | `true` | Upstream 5xx or invalid/empty response payload |
+| `503` | `UPSTREAM_AUTH_OR_QUOTA` | `false` | Upstream authentication or quota exhaustion |
+| `500` | `INTERNAL_ERROR` | `false` | Unexpected internal gateway failure |
+
 ---
 
 ## Quick Start

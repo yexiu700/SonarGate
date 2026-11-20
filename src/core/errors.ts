@@ -7,6 +7,7 @@ export type GatewayErrorCode =
   | 'UPSTREAM_TIMEOUT'
   | 'RATE_LIMITED'
   | 'ENGINE_NOT_CONFIGURED'
+  | 'ENGINE_NOT_IMPLEMENTED'
   | 'UPSTREAM_BAD_RESPONSE'
   | 'UPSTREAM_AUTH_OR_QUOTA'
   | 'INTERNAL_ERROR';
@@ -18,6 +19,7 @@ export const ERROR_STATUS_MAP: Readonly<Record<GatewayErrorCode, number>> = {
   UPSTREAM_TIMEOUT: 408,
   RATE_LIMITED: 429,
   ENGINE_NOT_CONFIGURED: 501,
+  ENGINE_NOT_IMPLEMENTED: 501,
   UPSTREAM_BAD_RESPONSE: 502,
   UPSTREAM_AUTH_OR_QUOTA: 503,
   INTERNAL_ERROR: 500,
@@ -30,6 +32,7 @@ export const ERROR_DEFAULT_RETRYABLE: Readonly<Record<GatewayErrorCode, boolean>
   UPSTREAM_TIMEOUT: true,
   RATE_LIMITED: true,
   ENGINE_NOT_CONFIGURED: false,
+  ENGINE_NOT_IMPLEMENTED: false,
   UPSTREAM_BAD_RESPONSE: true,
   UPSTREAM_AUTH_OR_QUOTA: false,
   INTERNAL_ERROR: false,
@@ -136,6 +139,18 @@ export function engineNotConfiguredError(engine: string): GatewayError {
     retryable: false,
     engine,
   });
+}
+
+export function engineNotImplementedError(engine: string): GatewayError {
+  return new GatewayError(
+    501,
+    'ENGINE_NOT_IMPLEMENTED',
+    `Engine "${engine}" is planned but not yet implemented by SonarGate.`,
+    {
+      retryable: false,
+      engine,
+    },
+  );
 }
 
 export function upstreamBadResponseError(

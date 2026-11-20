@@ -216,8 +216,8 @@ describe('POST /v1/collect integration contract', () => {
   });
 
   it.each(['yuanbao', 'nami', 'kimi'])(
-    'returns 400 UNSUPPORTED_ENGINE for unsupported engine "%s" with zero fallback',
-    async (unsupported) => {
+    'returns 501 ENGINE_NOT_IMPLEMENTED for planned engine "%s" with zero fallback',
+    async (planned) => {
       const res = await app.inject({
         method: 'POST',
         url: '/v1/collect',
@@ -226,7 +226,34 @@ describe('POST /v1/collect integration contract', () => {
           'content-type': 'application/json',
         },
         payload: {
-          engine: unsupported,
+          engine: planned,
+          prompt: 'hello',
+        },
+      });
+
+      expect(res.statusCode).toBe(501);
+      expect(res.json()).toMatchObject({
+        error: {
+          code: 'ENGINE_NOT_IMPLEMENTED',
+          retryable: false,
+          engine: planned,
+        },
+      });
+    },
+  );
+
+  it.each(['unknown_foo', 'nonexistent_engine'])(
+    'returns 400 UNSUPPORTED_ENGINE for unknown engine "%s" with zero fallback',
+    async (unknown) => {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/v1/collect',
+        headers: {
+          authorization: `Bearer ${API_KEY}`,
+          'content-type': 'application/json',
+        },
+        payload: {
+          engine: unknown,
           prompt: 'hello',
         },
       });
@@ -236,7 +263,7 @@ describe('POST /v1/collect integration contract', () => {
         error: {
           code: 'UNSUPPORTED_ENGINE',
           retryable: false,
-          engine: unsupported,
+          engine: unknown,
         },
       });
     },
@@ -295,11 +322,55 @@ describe('POST /v1/collect integration contract', () => {
       },
     });
 
-    expect(resInvalid.statusCode).toBe(400);
+    expect(resInvalid.statusCode).toBe(501);
     const echoed = resInvalid.headers['x-request-id'];
     expect(typeof echoed).toBe('string');
     expect(echoed).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i);
     expect(resInvalid.json().error.requestId).toBe(echoed);
+  });
+
+  it('GET /v1/engines exposes lifecycle status (ready/unconfigured/planned) for all engines', async () => {
+    const partialApp = buildApp({
+      config: loadConfig({
+        NODE_ENV: 'test',
+        LOG_LEVEL: 'silent',
+        GATEWAY_API_KEYS: API_KEY,
+        DEEPSEEK_API_KEY: 'sk-deepseek-only',
+      }),
+      logger: false,
+    });
+
+    try {
+      const res = await partialApp.inject({
+        method: 'GET',
+        url: '/v1/engines',
+        headers: {
+          authorization: `Bearer ${API_KEY}`,
+        },
+      });
+
+      expect(res.statusCode).toBe(200);
+      const body = res.json() as {
+        engines: Array<{ engine: string; configured: boolean; status: string }>;
+        plannedEngines: Array<{
+          engine: string;
+          region: string;
+          configured: boolean;
+          status: string;
+        }>;
+      };
+
+      const byEngine = new Map(body.engines.map((entry) => [entry.engine, entry]));
+      expect(byEngine.get('deepseek')).toMatchObject({ configured: true, status: 'ready' });
+      expect(byEngine.get('doubao')).toMatchObject({ configured: false, status: 'unconfigured' });
+      expect(body.plannedEngines).toEqual([
+        { engine: 'yuanbao', region: 'domestic', configured: false, status: 'planned' },
+        { engine: 'nami', region: 'domestic', configured: false, status: 'planned' },
+        { engine: 'kimi', region: 'domestic', configured: false, status: 'planned' },
+      ]);
+    } finally {
+      await partialApp.close();
+    }
   });
 
   it('serves cached responses without mutating cached requestId, and honors X-Bypass-Cache and noCache', async () => {

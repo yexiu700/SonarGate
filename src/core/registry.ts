@@ -8,14 +8,20 @@ import { createDataForSeoAdapters } from '../adapters/overseas/dataforseo.adapte
 import { OpenAiCompatOverseasAdapter } from '../adapters/overseas/openai-compat.adapter.js';
 import {
   OVERSEAS_ENGINES,
+  PLANNED_ENGINES,
   SUPPORTED_ENGINES,
+  isPlannedEngine,
   isSupportedEngine,
   type SupportedEngine,
 } from './contract.js';
-import { engineNotConfiguredError, unsupportedEngineError } from './errors.js';
+import {
+  engineNotConfiguredError,
+  engineNotImplementedError,
+  unsupportedEngineError,
+} from './errors.js';
 import type { HttpClient } from './http-client.js';
 import { Semaphore } from './semaphore.js';
-import type { EngineAdapter, EngineStatus, LoggerLike } from './types.js';
+import type { EngineAdapter, EngineStatus, LoggerLike, PlannedEngineStatus } from './types.js';
 
 export interface ResolvedEngine {
   adapter: EngineAdapter;
@@ -110,6 +116,9 @@ export class EngineRegistry {
   resolve(engineName: string): ResolvedEngine {
     const normalized = engineName.trim().toLowerCase();
     if (!isSupportedEngine(normalized)) {
+      if (isPlannedEngine(normalized)) {
+        throw engineNotImplementedError(normalized);
+      }
       throw unsupportedEngineError(normalized.length > 0 ? normalized : engineName);
     }
 
@@ -132,13 +141,15 @@ export class EngineRegistry {
         continue;
       }
 
+      const configured = adapter.isConfigured();
       const stats = semaphore.getStats();
       statuses.push({
         engine: adapter.engine,
         region: adapter.region,
         provider: adapter.provider,
         ...(adapter.model !== undefined ? { model: adapter.model } : {}),
-        configured: adapter.isConfigured(),
+        configured,
+        status: configured ? 'ready' : 'unconfigured',
         concurrencyLimit: stats.maxConcurrency,
         activeRequests: stats.active,
         queuedRequests: stats.queued,
@@ -146,6 +157,15 @@ export class EngineRegistry {
     }
 
     return statuses;
+  }
+
+  getPlannedStatuses(): PlannedEngineStatus[] {
+    return PLANNED_ENGINES.map((engine) => ({
+      engine,
+      region: 'domestic',
+      configured: false,
+      status: 'planned',
+    }));
   }
 
   getConfiguredCount(): number {

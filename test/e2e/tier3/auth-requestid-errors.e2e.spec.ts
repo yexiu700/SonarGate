@@ -147,12 +147,12 @@ describe('Tier 3: Multi-Key Auth + X-Request-Id + Error Envelope Matrix', () => 
         { engine: 'yuanbao', prompt: `bad engine ${i}` },
         { requestId: badId },
       );
-      expect(errRes.statusCode).toBe(400);
+      expect(errRes.statusCode).toBe(501);
       const errHeaderId = errRes.headers['x-request-id'];
       expect(typeof errHeaderId).toBe('string');
       expect(errHeaderId).toMatch(UUID_V4_REGEX);
       const parsedErr = errorEnvelopeSchema.parse(errRes.json());
-      expect(parsedErr.error.code).toBe('UNSUPPORTED_ENGINE');
+      expect(parsedErr.error.code).toBe('ENGINE_NOT_IMPLEMENTED');
       expect(parsedErr.error.requestId).toBe(errHeaderId);
     }
   });
@@ -201,17 +201,30 @@ describe('Tier 3: Multi-Key Auth + X-Request-Id + Error Envelope Matrix', () => 
       requestId: 'req-400-json',
     });
 
-    // 400 UNSUPPORTED_ENGINE: yuanbao, nami, kimi
-    for (const unsupported of ['yuanbao', 'nami', 'kimi'] as const) {
-      const reqId = `req-400-${unsupported}`;
+    // 400 UNSUPPORTED_ENGINE: unknown_foo
+    const unknownRes = await harness.collect(
+      { engine: 'unknown_foo', prompt: 'test prompt' },
+      { apiKey: SECONDARY_API_KEY, requestId: 'req-400-unknown' },
+    );
+    expect(unknownRes.statusCode).toBe(400);
+    expect(unknownRes.headers['x-request-id']).toBe('req-400-unknown');
+    expect(errorEnvelopeSchema.parse(unknownRes.json()).error).toMatchObject({
+      code: 'UNSUPPORTED_ENGINE',
+      retryable: false,
+      requestId: 'req-400-unknown',
+    });
+
+    // 501 ENGINE_NOT_IMPLEMENTED: planned engines (yuanbao, nami, kimi)
+    for (const planned of ['yuanbao', 'nami', 'kimi'] as const) {
+      const reqId = `req-501-${planned}`;
       const res = await harness.collect(
-        { engine: unsupported, prompt: 'test prompt' },
+        { engine: planned, prompt: 'test prompt' },
         { apiKey: SECONDARY_API_KEY, requestId: reqId },
       );
-      expect(res.statusCode).toBe(400);
+      expect(res.statusCode).toBe(501);
       expect(res.headers['x-request-id']).toBe(reqId);
       expect(errorEnvelopeSchema.parse(res.json()).error).toMatchObject({
-        code: 'UNSUPPORTED_ENGINE',
+        code: 'ENGINE_NOT_IMPLEMENTED',
         retryable: false,
         requestId: reqId,
       });

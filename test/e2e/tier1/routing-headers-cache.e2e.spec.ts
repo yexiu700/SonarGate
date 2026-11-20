@@ -18,21 +18,41 @@ describe('Tier 1 — Routing, Headers & Cache Bypass', () => {
     }
   });
 
-  describe('Unsupported engines return 400 UNSUPPORTED_ENGINE with zero upstream calls', () => {
-    for (const unsupported of ['yuanbao', 'nami', 'kimi']) {
-      it(`rejects "${unsupported}" with 400 UNSUPPORTED_ENGINE`, async () => {
+  describe('Planned engines return 501 ENGINE_NOT_IMPLEMENTED with zero upstream calls', () => {
+    for (const planned of ['yuanbao', 'nami', 'kimi']) {
+      it(`rejects "${planned}" with 501 ENGINE_NOT_IMPLEMENTED`, async () => {
         harness = createE2EHarness();
 
         const res = await harness.collect({
-          engine: unsupported,
-          prompt: 'unsupported engine probe',
+          engine: planned,
+          prompt: 'planned engine probe',
+        });
+
+        expect(res.statusCode).toBe(501);
+        const envelope = errorEnvelopeSchema.parse(res.json());
+        expect(envelope.error.code).toBe('ENGINE_NOT_IMPLEMENTED');
+        expect(envelope.error.retryable).toBe(false);
+        expect(envelope.error.engine).toBe(planned);
+        expect(harness.upstreams.getTotalHits()).toBe(0);
+      });
+    }
+  });
+
+  describe('Unknown engines return 400 UNSUPPORTED_ENGINE with zero upstream calls', () => {
+    for (const unknown of ['unknown_foo', 'not_an_engine']) {
+      it(`rejects "${unknown}" with 400 UNSUPPORTED_ENGINE`, async () => {
+        harness = createE2EHarness();
+
+        const res = await harness.collect({
+          engine: unknown,
+          prompt: 'unknown engine probe',
         });
 
         expect(res.statusCode).toBe(400);
         const envelope = errorEnvelopeSchema.parse(res.json());
         expect(envelope.error.code).toBe('UNSUPPORTED_ENGINE');
         expect(envelope.error.retryable).toBe(false);
-        expect(envelope.error.engine).toBe(unsupported);
+        expect(envelope.error.engine).toBe(unknown);
         expect(harness.upstreams.getTotalHits()).toBe(0);
       });
     }
@@ -109,7 +129,7 @@ describe('Tier 1 — Routing, Headers & Cache Bypass', () => {
         { requestId: customRequestId },
       );
 
-      expect(errRes.statusCode).toBe(400);
+      expect(errRes.statusCode).toBe(501);
       expect(errRes.headers['x-request-id']).toBe(customRequestId);
       const envelope = errorEnvelopeSchema.parse(errRes.json());
       expect(envelope.error.requestId).toBe(customRequestId);

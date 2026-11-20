@@ -20,6 +20,7 @@ export function registerEnginesRoutes(app: FastifyInstance, options: EnginesRout
     async (_request, reply) => {
       return reply.code(200).send({
         engines: options.registry.getStatuses(),
+        plannedEngines: options.registry.getPlannedStatuses(),
         configuredCount: options.registry.getConfiguredCount(),
         totalSupported: options.registry.getTotalSupported(),
         cache: {

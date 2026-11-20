@@ -12,14 +12,22 @@ export const OVERSEAS_ENGINES = [
 
 export const SUPPORTED_ENGINES = [...DOMESTIC_ENGINES, ...OVERSEAS_ENGINES] as const;
 
+export const PLANNED_ENGINES = ['yuanbao', 'nami', 'kimi'] as const;
+
 export type DomesticEngine = (typeof DOMESTIC_ENGINES)[number];
 export type OverseasEngine = (typeof OVERSEAS_ENGINES)[number];
 export type SupportedEngine = (typeof SUPPORTED_ENGINES)[number];
+export type PlannedEngine = (typeof PLANNED_ENGINES)[number];
 
 export const SUPPORTED_ENGINE_SET: ReadonlySet<string> = new Set(SUPPORTED_ENGINES);
+export const PLANNED_ENGINE_SET: ReadonlySet<string> = new Set(PLANNED_ENGINES);
 
 export function isSupportedEngine(value: string): value is SupportedEngine {
   return SUPPORTED_ENGINE_SET.has(value);
+}
+
+export function isPlannedEngine(value: string): value is PlannedEngine {
+  return PLANNED_ENGINE_SET.has(value);
 }
 
 export const collectRequestSchema = z.object({
@@ -76,6 +84,7 @@ export const gatewayErrorCodeSchema = z.enum([
   'UPSTREAM_TIMEOUT',
   'RATE_LIMITED',
   'ENGINE_NOT_CONFIGURED',
+  'ENGINE_NOT_IMPLEMENTED',
   'UPSTREAM_BAD_RESPONSE',
   'UPSTREAM_AUTH_OR_QUOTA',
   'INTERNAL_ERROR',

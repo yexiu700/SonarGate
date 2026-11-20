@@ -1,6 +1,7 @@
-import type { SupportedEngine } from './contract.js';
+import type { PlannedEngine, SupportedEngine } from './contract.js';
 
 export type EngineRegion = 'domestic' | 'overseas';
+export type EngineLifecycleStatus = 'ready' | 'unconfigured' | 'planned';
 
 export interface RawCitation {
   url: string;
@@ -51,9 +52,17 @@ export interface EngineStatus {
   provider: string;
   model?: string | undefined;
   configured: boolean;
+  status: Exclude<EngineLifecycleStatus, 'planned'>;
   concurrencyLimit: number;
   activeRequests: number;
   queuedRequests: number;
+}
+
+export interface PlannedEngineStatus {
+  engine: PlannedEngine;
+  region: EngineRegion;
+  configured: false;
+  status: 'planned';
 }
 
 export interface LoggerLike {

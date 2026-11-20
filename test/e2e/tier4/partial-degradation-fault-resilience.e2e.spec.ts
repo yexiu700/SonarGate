@@ -154,10 +154,10 @@ describe('Tier 4 Scenario 3: Partial-Degradation Production Batch & GeoMix Error
     });
     expect(harness.upstreams.getHitCount('wenxin')).toBe(0);
 
-    // 7. yuanbao -> 400 UNSUPPORTED_ENGINE
-    expect(yuanbaoRes.statusCode).toBe(400);
+    // 7. yuanbao -> 501 ENGINE_NOT_IMPLEMENTED
+    expect(yuanbaoRes.statusCode).toBe(501);
     expect(errorEnvelopeSchema.parse(yuanbaoRes.json()).error).toMatchObject({
-      code: 'UNSUPPORTED_ENGINE',
+      code: 'ENGINE_NOT_IMPLEMENTED',
       retryable: false,
       requestId: 'batch-yuanbao',
     });

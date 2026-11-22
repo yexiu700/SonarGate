@@ -119,13 +119,14 @@ pnpm smoke --all-configured --prompt="2026年中小企业CRM系统推荐哪几�
 docker compose up -d --build
 ```
 
-### Production (GHCR + Self-Hosted Runner + Nginx)
+### Shared us-test (GHCR + dedicated runner)
 
-Production deployments use [`docker-compose.prod.yml`](./docker-compose.prod.yml) (pulling `ghcr.io/<owner>/sonargate:<tag>`) and [`deploy/nginx-sonargate.conf`](./deploy/nginx-sonargate.conf):
+Deployments use [`docker-compose.prod.yml`](./docker-compose.prod.yml) (pulling `ghcr.io/<owner>/sonargate:<tag>`). [`deploy/nginx-sonargate.conf`](./deploy/nginx-sonargate.conf) is a reference sample only. CD does not copy it onto the host and does not edit, reload, or restart system Nginx.
 
-- Deployed to `/opt/sonargate` with server-managed `/opt/sonargate/.env` (`chmod 600`).
-- Listens strictly on loopback `127.0.0.1:8080` behind Nginx HTTPS termination (direct `POST /v1/collect` with zero `3xx` redirects).
-- `stop_grace_period: 35s` aligns with the 30 s graceful in-flight drain.
+- Files land in `/opt/sonargate`. The existing server-managed `/opt/sonargate/.env` (`chmod 600`) is read and never rewritten.
+- The only host publish is loopback `127.0.0.1:18082`, mapped to container port `8080`. CD does not read `SONARGATE_PORT` and does not publish on `0.0.0.0`.
+- The deploy job runs only when the runner has every label `self-hosted`, `Linux`, `X64`, and `sonargate-us-test` (actions/runner 2.338.2 system labels plus the dedicated label). A generic `self-hosted` runner, including GeoMix `us_test` at `/opt/actions-runner`, is not eligible.
+- CD replaces only the `sonargate` service. It does not `docker compose down` a stack, does not pass `--remove-orphans`, and does not prune images, volumes, or containers on the shared host. The previous SonarGate image is left in place for rollback.
 
 ---
 
@@ -135,7 +136,7 @@ Production deployments use [`docker-compose.prod.yml`](./docker-compose.prod.yml
 | :--- | :--- | :--- |
 | [`.github/workflows/ci.yml`](./.github/workflows/ci.yml) | `push` (`main`), `pull_request`, manual | `verify` (lint, typecheck, unit/integration, E2E, build) + `docker-check` (build & non-root read-only container smoke) |
 | [`.github/workflows/auto-merge.yml`](./.github/workflows/auto-merge.yml) | `pull_request`, `workflow_run` (`CI`) | Automatically squash-merges same-repo non-draft PRs once `CI` passes |
-| [`.github/workflows/cd.yml`](./.github/workflows/cd.yml) | Manual (`workflow_dispatch`) | Builds/pushes GHCR image (`:sha-<7>`, `:latest`), deploys to `self-hosted` runner, runs `/health` + `/ready` + no-`3xx` post-deploy gate, and auto-rolls back on failure; supports instant `rollback_tag` |
+| [`.github/workflows/cd.yml`](./.github/workflows/cd.yml) | Manual (`workflow_dispatch`) | Builds/pushes GHCR image (`:sha-<7>`, `:latest`), deploys only `sonargate` on runner labels `self-hosted` + `Linux` + `X64` + `sonargate-us-test` to `127.0.0.1:18082`, runs `/health` + `/ready` + no-`3xx` post-deploy gate, and auto-rolls back that service on failure; supports instant `rollback_tag`. Does not prune the host or touch Nginx |
 | [`.github/workflows/smoke.yml`](./.github/workflows/smoke.yml) | Manual (`workflow_dispatch`, Env: `smoke`) | Controlled real-key smoke testing (local or remote gateway) isolated from PRs |
 
 ---

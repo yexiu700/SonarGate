@@ -1,3 +1,4 @@
+# Custom label for the dedicated us-test runner at /opt/sonargate-runner.
 self-hosted-runner:
   labels:
     - self-hosted

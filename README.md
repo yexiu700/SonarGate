@@ -150,7 +150,7 @@ runs-on: [self-hosted, linux, x64, sonargate-us-test]
 | `x64` | Added automatically. The UI may show `X64`; matching is case-insensitive |
 | `sonargate-us-test` | Custom label. Add it only on the SonarGate runner |
 
-The existing GeoMix runner on `us-test` must keep its current labels and must not receive `sonargate-us-test`. A job that asks only for `self-hosted` can be picked up by that GeoMix runner. This workflow does not do that.
+The existing GeoMix runner (`us_test` at `/opt/actions-runner`) on `us-test` must keep its current labels and must not receive `sonargate-us-test`. A job that asks only for `self-hosted` can be picked up by that GeoMix runner. This workflow does not do that.
 
 `us-test` is CentOS 7 (glibc 2.17). Do not install a current GitHub Actions runner binary on the host itself. Run a separate SonarGate runner in its own container, with a userspace that provides a newer glibc, its own config directory, and no shared state with the GeoMix runner. At registration, add the custom label `sonargate-us-test`; the agent still applies `self-hosted`, `linux`, and `x64`. Keep the registration token out of git. This repository does not register or start that runner.
 
@@ -170,7 +170,7 @@ The existing GeoMix runner on `us-test` must keep its current labels and must no
 | :--- | :--- | :--- |
 | [`.github/workflows/ci.yml`](./.github/workflows/ci.yml) | `push` (`main`), `pull_request`, manual | `verify` (CD shared-host safety check, lint, typecheck, unit/integration, E2E, build) + `docker-check` (build & non-root read-only container smoke) |
 | [`.github/workflows/auto-merge.yml`](./.github/workflows/auto-merge.yml) | `pull_request`, `workflow_run` (`CI`) | Automatically squash-merges same-repo non-draft PRs once `CI` passes |
-| [`.github/workflows/cd.yml`](./.github/workflows/cd.yml) | Manual (`workflow_dispatch`) | Builds/pushes GHCR image (`:sha-<7>`, `:latest`) and deploys only the `sonargate` service on the runner labeled `sonargate-us-test` (plus `self-hosted`, `linux`, `x64`). Checks `127.0.0.1:18082` `/health` + `/ready` + no-`3xx`, and rolls that service back on failure. Does not clean host Docker data or change the host web server |
+| [`.github/workflows/cd.yml`](./.github/workflows/cd.yml) | Manual (`workflow_dispatch`) | Builds/pushes GHCR image (`:sha-<7>`, `:latest`) and deploys only the `sonargate` service on the runner labeled `sonargate-us-test` (plus `self-hosted`, `linux`, `x64`). Checks `127.0.0.1:18082` `/health` + `/ready` + no-`3xx`, and rolls that service back on failure; supports instant `rollback_tag`. Does not clean host Docker data or change the host web server |
 | [`.github/workflows/smoke.yml`](./.github/workflows/smoke.yml) | Manual (`workflow_dispatch`, Env: `smoke`) | Controlled real-key smoke testing (local or remote gateway) isolated from PRs |
 
 ---

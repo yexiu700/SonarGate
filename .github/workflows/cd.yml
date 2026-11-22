@@ -1,8 +1,8 @@
 name: CD
 
 # Manual deployment only (per CI/CD design §7 Q2: auto-merge PRs, manual trigger CD).
-# Deploy runs only on the dedicated SonarGate runner. A bare self-hosted label
-# can be claimed by the unrelated GeoMix runner on the same host.
+# The deploy job is pinned to the dedicated SonarGate us-test runner. Do not widen
+# runs-on back to a bare `self-hosted` label: that also matches the GeoMix runner `us_test`.
 on:
   workflow_dispatch:
     inputs:
@@ -91,6 +91,8 @@ jobs:
   deploy:
     name: deploy
     needs: build-and-push
+    # All four labels are required (matched case-insensitively by GitHub Actions).
+    # GeoMix runner us_test (/opt/actions-runner) lacks sonargate-us-test and is not eligible.
     runs-on: [self-hosted, linux, x64, sonargate-us-test]
     timeout-minutes: 15
     steps:

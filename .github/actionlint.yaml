@@ -1,5 +1,7 @@
 # Custom label for the dedicated us-test runner at /opt/sonargate-runner.
-# System labels from actions/runner 2.338.2 remain self-hosted, Linux, and X64.
 self-hosted-runner:
   labels:
+    - self-hosted
+    - linux
+    - x64
     - sonargate-us-test

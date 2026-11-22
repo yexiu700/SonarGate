@@ -119,14 +119,48 @@ pnpm smoke --all-configured --prompt="2026年中小企业CRM系统推荐哪几�
 docker compose up -d --build
 ```
 
-### Shared us-test (GHCR + dedicated runner)
+### Production (GHCR + dedicated self-hosted runner)
 
-Deployments use [`docker-compose.prod.yml`](./docker-compose.prod.yml) (pulling `ghcr.io/<owner>/sonargate:<tag>`). [`deploy/nginx-sonargate.conf`](./deploy/nginx-sonargate.conf) is a reference sample only. CD does not copy it onto the host and does not edit, reload, or restart system Nginx.
+Production on the shared `us-test` host uses [`docker-compose.prod.yml`](./docker-compose.prod.yml). The process listens on container port `8080` and is published only as **`127.0.0.1:18082`**. Public HTTPS routing already targets that loopback address. CD does not change it.
 
-- Files land in `/opt/sonargate`. The existing server-managed `/opt/sonargate/.env` (`chmod 600`) is read and never rewritten.
-- The only host publish is loopback `127.0.0.1:18082`, mapped to container port `8080`. CD does not read `SONARGATE_PORT` and does not publish on `0.0.0.0`.
-- The deploy job runs only when the runner has every label `self-hosted`, `Linux`, `X64`, and `sonargate-us-test` (actions/runner 2.338.2 system labels plus the dedicated label). A generic `self-hosted` runner, including GeoMix `us_test` at `/opt/actions-runner`, is not eligible.
-- CD replaces only the `sonargate` service. It does not `docker compose down` a stack, does not pass `--remove-orphans`, and does not prune images, volumes, or containers on the shared host. The previous SonarGate image is left in place for rollback.
+[`deploy/nginx-sonargate.conf`](./deploy/nginx-sonargate.conf) is only a reference sample. CD does not copy it and does not edit, reload, or restart the host web server. Do not install that sample over the live routing: the live upstream is `127.0.0.1:18082`.
+
+CD ([`.github/workflows/cd.yml`](./.github/workflows/cd.yml)) is manual (`workflow_dispatch` only). Opening or merging a pull request does not deploy.
+
+Shared-host rules enforced by [`deploy/sonargate-deploy.sh`](./deploy/sonargate-deploy.sh):
+
+- Copy only `docker-compose.prod.yml` to `/opt/sonargate`. Server-managed `/opt/sonargate/.env` (mode `600`) is required and is never overwritten. A deploy path other than `/opt/sonargate` is refused.
+- Update only Compose project `sonargate`, service `sonargate` (`pull sonargate`, then `up -d --no-deps --no-build sonargate`). There is no whole-stack `down` and no orphan removal.
+- Do not delete images, volumes, networks, or containers. Global image cleanup is intentionally absent, so other projects on `us-test` keep their images. The tag that was running is pinned to its image id before pull and is left in place for rollback.
+- Do not run database migrations. The service is stateless. If the post-deploy gate fails, only the `sonargate` service is recreated from the previous image.
+- `stop_grace_period: 40s` leaves room for the 30 s in-flight drain.
+
+#### Dedicated runner labels
+
+The deploy job requires every label below. GitHub matches them with AND, so a runner that only has the default self-hosted labels is not eligible:
+
+```yaml
+runs-on: [self-hosted, linux, x64, sonargate-us-test]
+```
+
+| Label | How the runner gets it |
+| :--- | :--- |
+| `self-hosted` | Added automatically by the runner agent |
+| `linux` | Added automatically. The UI may show `Linux`; matching is case-insensitive |
+| `x64` | Added automatically. The UI may show `X64`; matching is case-insensitive |
+| `sonargate-us-test` | Custom label. Add it only on the SonarGate runner |
+
+The existing GeoMix runner (`us_test` at `/opt/actions-runner`) on `us-test` must keep its current labels and must not receive `sonargate-us-test`. A job that asks only for `self-hosted` can be picked up by that GeoMix runner. This workflow does not do that.
+
+`us-test` is CentOS 7 (glibc 2.17). Do not install a current GitHub Actions runner binary on the host itself. Run a separate SonarGate runner in its own container, with a userspace that provides a newer glibc, its own config directory, and no shared state with the GeoMix runner. At registration, add the custom label `sonargate-us-test`; the agent still applies `self-hosted`, `linux`, and `x64`. Keep the registration token out of git. This repository does not register or start that runner.
+
+#### Deploying after that runner is online
+
+1. Cancel any older CD run that still uses `runs-on: self-hosted` before it is picked up. Those runs can land on the GeoMix runner and can clean images for the whole host. This repository change does not cancel them.
+2. Confirm the new runner is idle and lists `sonargate-us-test`, and that the GeoMix runner does not.
+3. Confirm the live publish address is still `127.0.0.1:18082`. Leave the host web server as it is.
+4. Run the CD workflow manually from the Actions tab. Merge does not deploy.
+5. The job checks `http://127.0.0.1:18082/health` and `http://127.0.0.1:18082/ready`. When the `PUBLIC_COLLECT_URL` repository variable is set, it also checks that an unauthenticated public `POST /v1/collect` returns `401` with no `3xx`.
 
 ---
 
@@ -134,9 +168,9 @@ Deployments use [`docker-compose.prod.yml`](./docker-compose.prod.yml) (pulling 
 
 | Workflow | Trigger | Purpose |
 | :--- | :--- | :--- |
-| [`.github/workflows/ci.yml`](./.github/workflows/ci.yml) | `push` (`main`), `pull_request`, manual | `verify` (lint, typecheck, unit/integration, E2E, build) + `docker-check` (build & non-root read-only container smoke) |
+| [`.github/workflows/ci.yml`](./.github/workflows/ci.yml) | `push` (`main`), `pull_request`, manual | `verify` (CD shared-host safety check, lint, typecheck, unit/integration, E2E, build) + `docker-check` (build & non-root read-only container smoke) |
 | [`.github/workflows/auto-merge.yml`](./.github/workflows/auto-merge.yml) | `pull_request`, `workflow_run` (`CI`) | Automatically squash-merges same-repo non-draft PRs once `CI` passes |
-| [`.github/workflows/cd.yml`](./.github/workflows/cd.yml) | Manual (`workflow_dispatch`) | Builds/pushes GHCR image (`:sha-<7>`, `:latest`), deploys only `sonargate` on runner labels `self-hosted` + `Linux` + `X64` + `sonargate-us-test` to `127.0.0.1:18082`, runs `/health` + `/ready` + no-`3xx` post-deploy gate, and auto-rolls back that service on failure; supports instant `rollback_tag`. Does not prune the host or touch Nginx |
+| [`.github/workflows/cd.yml`](./.github/workflows/cd.yml) | Manual (`workflow_dispatch`) | Builds/pushes GHCR image (`:sha-<7>`, `:latest`) and deploys only the `sonargate` service on the runner labeled `sonargate-us-test` (plus `self-hosted`, `linux`, `x64`). Checks `127.0.0.1:18082` `/health` + `/ready` + no-`3xx`, and rolls that service back on failure; supports instant `rollback_tag`. Does not clean host Docker data or change the host web server |
 | [`.github/workflows/smoke.yml`](./.github/workflows/smoke.yml) | Manual (`workflow_dispatch`, Env: `smoke`) | Controlled real-key smoke testing (local or remote gateway) isolated from PRs |
 
 ---

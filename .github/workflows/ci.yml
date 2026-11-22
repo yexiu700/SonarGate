@@ -23,6 +23,9 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v7
 
+      - name: Check CD shared-host safety
+        run: bash deploy/check-cd-safety.sh
+
       - name: Setup pnpm
         uses: pnpm/action-setup@v6
 

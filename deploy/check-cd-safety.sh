@@ -125,4 +125,72 @@ else:
 print("compose structure ok")
 PY
 
+# Behavioral checks for previous-image validation & rollback tag resolution.
+(
+  # shellcheck source=deploy/sonargate-deploy.sh
+  source "$DEPLOY"
+
+  TEST_REPO="ghcr.io/yexiu700/sonargate"
+  TEST_DIGEST="sha256:e554d8d12cb20de27185e9e8bc7ba862225b558ed26b6aec6dcfbbf082577bd9"
+  TEST_ID="sha256:88e2c2cd674f1a340da3ca8eff848890e8b4583537ddf81f94e5a2f45559465e"
+  TEST_TARGET="${TEST_REPO}:sha-b2ed2e5"
+
+  # 1. Digest-only reference (live us-test container format)
+  parse_prev_image_ref "$TEST_REPO" "${TEST_REPO}@${TEST_DIGEST}" \
+    || fail "must accept valid @sha256 digest reference"
+  [ "$PREV_KIND" = "digest" ] || fail "expected PREV_KIND=digest, got '$PREV_KIND'"
+  resolve_rollback_target "$TEST_REPO" "$TEST_TARGET" "${TEST_REPO}@${TEST_DIGEST}" "$TEST_ID"
+  [ "$ROLLBACK_TAG" = "rollback-e554d8d12cb2" ] \
+    || fail "expected rollback tag rollback-e554d8d12cb2, got '$ROLLBACK_TAG'"
+  [ "$ROLLBACK_IMAGE" = "${TEST_REPO}:rollback-e554d8d12cb2" ] \
+    || fail "unexpected ROLLBACK_IMAGE '$ROLLBACK_IMAGE'"
+
+  # 2. Tag-only reference (distinct from target)
+  parse_prev_image_ref "$TEST_REPO" "${TEST_REPO}:sha-1111111" \
+    || fail "must accept valid tag reference"
+  [ "$PREV_KIND" = "tag" ] || fail "expected PREV_KIND=tag, got '$PREV_KIND'"
+  resolve_rollback_target "$TEST_REPO" "$TEST_TARGET" "${TEST_REPO}:sha-1111111" "$TEST_ID"
+  [ "$ROLLBACK_TAG" = "sha-1111111" ] || fail "expected ROLLBACK_TAG=sha-1111111, got '$ROLLBACK_TAG'"
+  [ "$ROLLBACK_IMAGE" = "${TEST_REPO}:sha-1111111" ] \
+    || fail "unexpected tag ROLLBACK_IMAGE '$ROLLBACK_IMAGE'"
+
+  # 3. Tag + digest reference (pins local digest tag without moving floating tag)
+  parse_prev_image_ref "$TEST_REPO" "${TEST_REPO}:latest@${TEST_DIGEST}" \
+    || fail "must accept valid tag@sha256 reference"
+  [ "$PREV_KIND" = "tag+digest" ] || fail "expected PREV_KIND=tag+digest, got '$PREV_KIND'"
+  resolve_rollback_target "$TEST_REPO" "$TEST_TARGET" "${TEST_REPO}:latest@${TEST_DIGEST}" "$TEST_ID"
+  [ "$ROLLBACK_TAG" = "rollback-e554d8d12cb2" ] \
+    || fail "expected digest rollback tag for tag+digest, got '$ROLLBACK_TAG'"
+
+  # 4. Floating :latest redeployed onto :latest pins previous image id
+  parse_prev_image_ref "$TEST_REPO" "${TEST_REPO}:latest" \
+    || fail "must accept :latest tag reference"
+  resolve_rollback_target "$TEST_REPO" "${TEST_REPO}:latest" "${TEST_REPO}:latest" "$TEST_ID"
+  [ "$ROLLBACK_TAG" = "rollback-88e2c2cd674f" ] \
+    || fail "expected image-id rollback tag for :latest redeploy, got '$ROLLBACK_TAG'"
+
+  # 5. Same immutable sha tag redeploy skips redundant rollback tag
+  parse_prev_image_ref "$TEST_REPO" "$TEST_TARGET" \
+    || fail "must accept target sha tag"
+  resolve_rollback_target "$TEST_REPO" "$TEST_TARGET" "$TEST_TARGET" "$TEST_ID"
+  [ -z "$ROLLBACK_TAG" ] && [ -z "$ROLLBACK_IMAGE" ] \
+    || fail "same immutable tag redeploy should not create rollback tag"
+
+  # 6. Foreign or malformed image references must be rejected
+  for bad_ref in \
+    "nginx:latest" \
+    "ghcr.io/other/sonargate:latest" \
+    "ghcr.io/other/sonargate@${TEST_DIGEST}" \
+    "ghcr.io/yexiu700/sonargate-other:latest" \
+    "${TEST_REPO}@sha256:short" \
+    "${TEST_REPO}@sha256:E554D8D12CB20DE27185E9E8BC7BA862225B558ED26B6AEC6DCFBFF082577BD9" \
+    "${TEST_REPO}@md5:e554d8d12cb20de27185e9e8bc7ba862" \
+    "${TEST_REPO}:../evil" \
+    "${TEST_REPO}:latest@${TEST_DIGEST}@extra"; do
+    if parse_prev_image_ref "$TEST_REPO" "$bad_ref"; then
+      fail "must reject invalid or foreign image reference: $bad_ref"
+    fi
+  done
+)
+
 echo "CD shared-host safety checks passed."

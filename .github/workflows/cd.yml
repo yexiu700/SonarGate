@@ -1,6 +1,8 @@
 name: CD
 
 # Manual deployment only (per CI/CD design §7 Q2: auto-merge PRs, manual trigger CD).
+# The deploy job is pinned to the dedicated us-test runner. Do not widen runs-on
+# back to a bare `self-hosted` label: that also matches the GeoMix runner `us_test`.
 on:
   workflow_dispatch:
     inputs:
@@ -89,7 +91,11 @@ jobs:
   deploy:
     name: deploy
     needs: build-and-push
-    runs-on: self-hosted
+    # All four labels are required. actions/runner 2.338.2 assigns the system
+    # labels self-hosted, Linux, and X64. sonargate-us-test is the extra user
+    # label on the runner at /opt/sonargate-runner. GeoMix us_test
+    # (/opt/actions-runner) does not have that label and must not run this job.
+    runs-on: [self-hosted, Linux, X64, sonargate-us-test]
     timeout-minutes: 15
     steps:
       - name: Checkout deployment manifests
@@ -97,10 +103,9 @@ jobs:
         with:
           ref: ${{ inputs.ref || 'main' }}
 
-      - name: Deploy to self-hosted server with post-deploy gate & auto-rollback
+      - name: Deploy SonarGate only on 127.0.0.1:18082
         env:
           DEPLOY_PATH: ${{ vars.DEPLOY_PATH || '/opt/sonargate' }}
-          SONARGATE_PORT: ${{ vars.SONARGATE_PORT || '8080' }}
           PUBLIC_COLLECT_URL: ${{ vars.PUBLIC_COLLECT_URL || '' }}
           REQUIRE_READY_ON_DEPLOY: ${{ vars.REQUIRE_READY_ON_DEPLOY || 'false' }}
           GHCR_OWNER: ${{ needs.build-and-push.outputs.ghcr_owner }}
@@ -110,15 +115,44 @@ jobs:
         run: |
           set -euo pipefail
 
+          # Fixed host publish. Do not read SONARGATE_PORT: an unset value used to
+          # fall through to 8080, and a variable must not publish 0.0.0.0.
+          HOST_PORT=18082
           TARGET_IMAGE="ghcr.io/${GHCR_OWNER}/sonargate:${IMAGE_TAG}"
-          echo "Deploying ${TARGET_IMAGE} into ${DEPLOY_PATH} (loopback port ${SONARGATE_PORT})"
+          echo "Deploying ${TARGET_IMAGE} into ${DEPLOY_PATH} (127.0.0.1:${HOST_PORT} only)"
 
-          # 1. Sync production compose & reference Nginx config (never overwrite host /etc/nginx)
-          mkdir -p "${DEPLOY_PATH}/deploy"
+          case "${DEPLOY_PATH}" in
+            /|/opt/actions-runner|/opt/actions-runner/*|/etc|/etc/*|/usr|/usr/*|/var/lib/docker|/var/lib/docker/*)
+              echo "ERROR: refusing to deploy into ${DEPLOY_PATH}"
+              exit 1
+              ;;
+          esac
+          case "${DEPLOY_PATH}" in
+            /*) ;;
+            *)
+              echo "ERROR: DEPLOY_PATH must be absolute: ${DEPLOY_PATH}"
+              exit 1
+              ;;
+          esac
+          if [[ "${DEPLOY_PATH}" == *..* ]]; then
+            echo "ERROR: DEPLOY_PATH must not contain .."
+            exit 1
+          fi
+
+          # Sync the SonarGate compose file only. Never copy, edit, reload, or restart nginx.
+          mkdir -p "${DEPLOY_PATH}"
           cp docker-compose.prod.yml "${DEPLOY_PATH}/docker-compose.prod.yml"
-          cp deploy/nginx-sonargate.conf "${DEPLOY_PATH}/deploy/nginx-sonargate.conf"
+          COMPOSE_FILE="${DEPLOY_PATH}/docker-compose.prod.yml"
 
-          # 2. Pre-flight check: server-managed .env must exist
+          EXPECTED_PORT_LINE="      - '127.0.0.1:${HOST_PORT}:8080'"
+          ACTUAL_PORT_LINE="$(grep -E "^[[:space:]]*-[[:space:]]*['\"].*:8080['\"][[:space:]]*$" "${COMPOSE_FILE}" || true)"
+          if [ "${ACTUAL_PORT_LINE}" != "${EXPECTED_PORT_LINE}" ]; then
+            echo "ERROR: ${COMPOSE_FILE} must publish exactly ${EXPECTED_PORT_LINE}"
+            echo "Found: ${ACTUAL_PORT_LINE:-<none>}"
+            exit 1
+          fi
+
+          # Server-managed env must already exist. This job does not write secrets.
           if [ ! -f "${DEPLOY_PATH}/.env" ]; then
             echo "ERROR: ${DEPLOY_PATH}/.env not found. Create it with chmod 600 before deploying."
             exit 1
@@ -126,40 +160,52 @@ jobs:
 
           cd "${DEPLOY_PATH}"
 
-          # 3. Record currently running image for automatic rollback
+          # Record the running image so a failed gate can roll SonarGate back.
+          # Do not delete that image, its volumes, or any other project's containers.
           PREV_IMAGE="$(docker inspect --format='{{.Config.Image}}' sonargate 2>/dev/null || true)"
-          echo "Previous image: ${PREV_IMAGE:-<none>}"
+          echo "Previous image (kept for rollback): ${PREV_IMAGE:-<none>}"
 
-          # 4. Log in to GHCR, pull new image, and perform graceful replacement (stop_grace_period: 35s)
           printf '%s' "${GHCR_TOKEN}" | docker login ghcr.io -u "${GHCR_USERNAME}" --password-stdin
-          export GHCR_OWNER IMAGE_TAG SONARGATE_PORT
-          docker compose -f docker-compose.prod.yml pull
-          docker compose -f docker-compose.prod.yml up -d --remove-orphans
+          export GHCR_OWNER IMAGE_TAG
+          # A runner-level SONARGATE_PORT must not be visible to compose interpolation.
+          unset SONARGATE_PORT || true
 
-          # 5. Post-deploy health gate
+          # Replace only the sonargate service. Do not down the project or remove orphans.
+          docker compose -f docker-compose.prod.yml pull sonargate
+          docker compose -f docker-compose.prod.yml up -d --no-deps sonargate
+
           GATE_OK=1
 
-          echo "Checking local liveness: http://127.0.0.1:${SONARGATE_PORT}/health ..."
-          HEALTH_OK=0
-          for i in $(seq 1 30); do
-            STATUS="$(curl -sS -o /dev/null -w '%{http_code}' "http://127.0.0.1:${SONARGATE_PORT}/health" || echo 000)"
-            if [ "$STATUS" = "200" ]; then
-              HEALTH_OK=1
-              break
-            fi
-            sleep 1
-          done
-          if [ "$HEALTH_OK" != "1" ]; then
-            echo "GATE FAILED: GET /health did not return 200 within 30s"
+          PORT_MAP="$(docker port sonargate 8080/tcp 2>/dev/null || true)"
+          echo "sonargate 8080/tcp is published as: ${PORT_MAP:-<none>}"
+          if [ "${PORT_MAP}" != "127.0.0.1:${HOST_PORT}" ]; then
+            echo "GATE FAILED: expected exactly 127.0.0.1:${HOST_PORT}, refusing any other publish"
             GATE_OK=0
-          else
-            echo "GET /health -> 200 OK"
           fi
 
           if [ "$GATE_OK" = "1" ]; then
-            echo "Checking local readiness: http://127.0.0.1:${SONARGATE_PORT}/ready ..."
+            echo "Checking local liveness: http://127.0.0.1:${HOST_PORT}/health ..."
+            HEALTH_OK=0
+            for _ in $(seq 1 30); do
+              STATUS="$(curl -sS -o /dev/null -w '%{http_code}' "http://127.0.0.1:${HOST_PORT}/health" || echo 000)"
+              if [ "$STATUS" = "200" ]; then
+                HEALTH_OK=1
+                break
+              fi
+              sleep 1
+            done
+            if [ "$HEALTH_OK" != "1" ]; then
+              echo "GATE FAILED: GET /health did not return 200 within 30s"
+              GATE_OK=0
+            else
+              echo "GET /health -> 200 OK"
+            fi
+          fi
+
+          if [ "$GATE_OK" = "1" ]; then
+            echo "Checking local readiness: http://127.0.0.1:${HOST_PORT}/ready ..."
             READY_BODY="$(mktemp)"
-            READY_STATUS="$(curl -sS -o "$READY_BODY" -w '%{http_code}' "http://127.0.0.1:${SONARGATE_PORT}/ready" || echo 000)"
+            READY_STATUS="$(curl -sS -o "$READY_BODY" -w '%{http_code}' "http://127.0.0.1:${HOST_PORT}/ready" || echo 000)"
             echo "GET /ready -> HTTP ${READY_STATUS}: $(cat "$READY_BODY")"
             rm -f "$READY_BODY"
             if [ "$REQUIRE_READY_ON_DEPLOY" = "true" ] && [ "$READY_STATUS" != "200" ]; then
@@ -187,20 +233,20 @@ jobs:
             esac
           fi
 
-          # 6. Automatic rollback on gate failure
+          # Roll back only the sonargate service. Do not down the stack or prune images.
           if [ "$GATE_OK" != "1" ]; then
             echo "=== Recent sonargate container logs ==="
             docker logs --tail 100 sonargate || true
             if [ -n "$PREV_IMAGE" ] && [ "$PREV_IMAGE" != "$TARGET_IMAGE" ]; then
               PREV_TAG="${PREV_IMAGE##*:}"
-              echo "Rolling back to previous image ${PREV_IMAGE} (tag=${PREV_TAG})..."
-              IMAGE_TAG="$PREV_TAG" docker compose -f docker-compose.prod.yml up -d --remove-orphans || true
+              echo "Rolling back sonargate only to ${PREV_IMAGE} (tag=${PREV_TAG})..."
+              IMAGE_TAG="$PREV_TAG" docker compose -f docker-compose.prod.yml up -d --no-deps sonargate || true
             else
-              echo "No distinct previous image available for rollback."
+              echo "No distinct previous image available for rollback. Other containers, volumes, and images were not modified."
             fi
             exit 1
           fi
 
-          # 7. Prune images older than 7 days (keep recent images for fast offline rollback)
-          docker image prune -f --filter "until=168h" || true
+          # No docker image/system/volume/container prune. A host-wide prune deletes
+          # other projects' unused images and SonarGate tags still needed for rollback.
           echo "Deployment succeeded: ${TARGET_IMAGE}"

@@ -9,7 +9,10 @@ services:
       HOST: 0.0.0.0
       PORT: 8080
     ports:
-      - '127.0.0.1:${SONARGATE_PORT:-8080}:8080'
+      # Host publish is fixed. Do not interpolate SONARGATE_PORT: unset used to
+      # fall through to 8080, and a shell or .env value must not move this port
+      # or publish it on 0.0.0.0. Container process still listens on 8080.
+      - '127.0.0.1:18082:8080'
     stop_grace_period: 40s
     restart: unless-stopped
     read_only: true

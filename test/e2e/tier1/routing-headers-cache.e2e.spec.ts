@@ -19,7 +19,7 @@ describe('Tier 1 — Routing, Headers & Cache Bypass', () => {
   });
 
   describe('Planned engines return 501 ENGINE_NOT_IMPLEMENTED with zero upstream calls', () => {
-    for (const planned of ['yuanbao', 'nami', 'kimi']) {
+    for (const planned of ['nami']) {
       it(`rejects "${planned}" with 501 ENGINE_NOT_IMPLEMENTED`, async () => {
         harness = createE2EHarness();
 
@@ -125,7 +125,7 @@ describe('Tier 1 — Routing, Headers & Cache Bypass', () => {
       expect(parsed.rawMeta?.['requestId']).toBe(customRequestId);
 
       const errRes = await harness.collect(
-        { engine: 'yuanbao', prompt: 'request id echo error' },
+        { engine: 'nami', prompt: 'request id echo error' },
         { requestId: customRequestId },
       );
 

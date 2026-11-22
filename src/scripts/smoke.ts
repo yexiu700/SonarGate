@@ -6,6 +6,9 @@ interface SmokeCliArgs {
   engine?: string | undefined;
   allConfigured: boolean;
   prompt?: string | undefined;
+  market?: string | undefined;
+  locale?: string | undefined;
+  region?: string | undefined;
   locationCode?: number | undefined;
   languageCode?: string | undefined;
   noCache: boolean;
@@ -55,6 +58,15 @@ function parseArgs(argv: readonly string[]): SmokeCliArgs {
       case '--prompt':
         parsed.prompt = readValue();
         break;
+      case '--market':
+        parsed.market = readValue().trim();
+        break;
+      case '--locale':
+        parsed.locale = readValue().trim();
+        break;
+      case '--region':
+        parsed.region = readValue().trim();
+        break;
       case '--location-code': {
         const rawNum = readValue();
         const num = Number(rawNum);
@@ -79,7 +91,7 @@ function printUsage(): void {
   console.error(
     [
       'Usage:',
-      '  pnpm smoke --engine=<engine> --prompt="<query>" [--location-code=2840] [--language-code=en] [--no-cache]',
+      '  pnpm smoke --engine=<engine> --prompt="<query>" [--market=GLOBAL] [--locale=en-US] [--region=US] [--location-code=2840] [--language-code=en] [--no-cache]',
       '  pnpm smoke --all-configured --prompt="<query>" [--no-cache]',
     ].join('\n'),
   );
@@ -149,6 +161,9 @@ async function run(): Promise<void> {
       const payload: Record<string, unknown> = {
         engine,
         prompt: args.prompt,
+        ...(args.market !== undefined ? { market: args.market } : {}),
+        ...(args.locale !== undefined ? { locale: args.locale } : {}),
+        ...(args.region !== undefined ? { region: args.region } : {}),
         ...(args.locationCode !== undefined ? { locationCode: args.locationCode } : {}),
         ...(args.languageCode !== undefined ? { languageCode: args.languageCode } : {}),
         ...(args.noCache ? { noCache: true } : {}),

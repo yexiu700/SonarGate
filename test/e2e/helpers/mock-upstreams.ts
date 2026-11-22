@@ -47,6 +47,16 @@ export const UPSTREAM_ROUTES: Record<UpstreamRouteKey, UpstreamRoute> = {
     path: '/v2/chat/completions',
     method: 'POST',
   },
+  yuanbao: {
+    origin: 'https://api.hunyuan.cloud.tencent.com',
+    path: '/v1/chat/completions',
+    method: 'POST',
+  },
+  kimi: {
+    origin: 'https://api.moonshot.cn',
+    path: '/v1/chat/completions',
+    method: 'POST',
+  },
   chatgpt: {
     origin: 'https://api.dataforseo.com',
     path: '/v3/ai_optimization/chat_gpt/llm_scraper/live/advanced',
@@ -370,6 +380,87 @@ export function buildWenxinPayload(overrides?: UpstreamPayloadOverrides): Record
     usage: {
       prompt_tokens: overrides?.tokensIn ?? 65,
       completion_tokens: overrides?.tokensOut ?? 160,
+    },
+  };
+}
+
+export function buildYuanbaoPayload(
+  overrides?: UpstreamPayloadOverrides,
+): Record<string, unknown> {
+  const citations = overrides?.citations ?? [
+    {
+      url: 'https://mp.weixin.qq.com/s/yuanbao-e2e-1',
+      title: '腾讯元宝参考 1',
+      snippet: '微信生态与搜狗检索摘要 1。',
+    },
+  ];
+  const fanOutQueries = overrides?.fanOutQueries ?? ['腾讯元宝 CRM 推荐'];
+
+  return {
+    id: overrides?.upstreamRequestId ?? 'hunyuan_yuanbao_e2e_001',
+    model: overrides?.model ?? 'hunyuan-turbos-latest',
+    choices: [
+      {
+        index: 0,
+        message: {
+          role: 'assistant',
+          content:
+            overrides?.answerText ??
+            '腾讯元宝联网回答：建议结合企业微信生态打通能力与客户留存转化报表综合选型。',
+        },
+        finish_reason: 'stop',
+      },
+    ],
+    search_info: {
+      search_results: citations.map((c, idx) => ({
+        index: idx + 1,
+        url: c.url,
+        ...(c.title !== undefined ? { title: c.title } : {}),
+        ...(c.snippet !== undefined ? { text: c.snippet } : { site_name: '微信公众号' }),
+      })),
+      search_queries: fanOutQueries,
+    },
+    usage: {
+      prompt_tokens: overrides?.tokensIn ?? 82,
+      completion_tokens: overrides?.tokensOut ?? 190,
+    },
+  };
+}
+
+export function buildKimiPayload(overrides?: UpstreamPayloadOverrides): Record<string, unknown> {
+  const citations = overrides?.citations ?? [
+    {
+      url: 'https://kimi.example.com/crm-guide-1',
+      title: 'Kimi 联网参考 1',
+      snippet: 'Moonshot Kimi 联网检索摘要 1。',
+    },
+  ];
+  const fanOutQueries = overrides?.fanOutQueries ?? ['Kimi 中小企业 CRM 评测'];
+
+  return {
+    id: overrides?.upstreamRequestId ?? 'cmpl_kimi_e2e_001',
+    model: overrides?.model ?? 'moonshot-v1-auto',
+    choices: [
+      {
+        index: 0,
+        message: {
+          role: 'assistant',
+          content:
+            overrides?.answerText ??
+            'Kimi 联网回答：2026 年中小企业选型 CRM 可重点关注自动化线索流转、移动端易用性与按席位成本。',
+        },
+        finish_reason: 'stop',
+      },
+    ],
+    search_results: citations.map((c) => ({
+      url: c.url,
+      ...(c.title !== undefined ? { title: c.title } : {}),
+      ...(c.snippet !== undefined ? { snippet: c.snippet } : {}),
+    })),
+    search_queries: fanOutQueries,
+    usage: {
+      prompt_tokens: overrides?.tokensIn ?? 91,
+      completion_tokens: overrides?.tokensOut ?? 215,
     },
   };
 }
@@ -726,6 +817,10 @@ export function buildUpstreamPayload(
       return buildZhipuPayload(overrides);
     case 'wenxin':
       return buildWenxinPayload(overrides);
+    case 'yuanbao':
+      return buildYuanbaoPayload(overrides);
+    case 'kimi':
+      return buildKimiPayload(overrides);
     case 'chatgpt':
       return buildChatGptPayload(overrides);
     case 'perplexity':

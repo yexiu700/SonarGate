@@ -2,6 +2,7 @@ import type { AppConfig } from '../config.js';
 import { buildCacheKey, computeResponseTtlMs, type ResponseCache } from './cache.js';
 import type { CollectRequest, CollectResponse, SupportedEngine } from './contract.js';
 import { upstreamTimeoutError } from './errors.js';
+import { resolveGeoContext } from './locale.js';
 import { normalizeResponse } from './normalizer.js';
 import type { EngineRegistry } from './registry.js';
 import { withRetry } from './retry.js';
@@ -28,11 +29,14 @@ export interface CollectExecutionOutput {
   latencyMs: number;
 }
 
+const DEFAULT_DOUBAO_ADAPTIVE_TIMEOUT_MS = 35_000;
+
 /**
  * Core orchestration service for `/v1/collect`.
  * Coordinates EngineRegistry resolution, Singleflight + LRU caching,
- * request deadline budgeting, Semaphore admission, bounded retries,
- * and GeoMix response normalization independently of HTTP transport.
+ * locale/region/market geo resolution, request deadline budgeting,
+ * Semaphore admission, bounded retries, and GeoMix response normalization
+ * independently of HTTP transport.
  */
 export class CollectService {
   constructor(private readonly deps: CollectServiceDeps) {}
@@ -43,9 +47,30 @@ export class CollectService {
     const { request: parsed, requestId, bypassCache } = input;
 
     const { adapter, semaphore } = registry.resolve(parsed.engine);
-    const locationCode = parsed.locationCode ?? config.overseas.dataforseo.locationCode;
-    const languageCode = parsed.languageCode ?? config.overseas.dataforseo.languageCode;
-    const cacheKey = buildCacheKey(adapter.engine, parsed.prompt, locationCode, languageCode);
+    const geo = resolveGeoContext(parsed, {
+      locationCode: config.overseas.dataforseo.locationCode,
+      languageCode: config.overseas.dataforseo.languageCode,
+      countryIso: config.overseas.dataforseo.countryIso,
+    });
+
+    const hasExplicitGeo =
+      parsed.market !== undefined || parsed.locale !== undefined || parsed.region !== undefined;
+    const cacheKey = buildCacheKey(
+      adapter.engine,
+      parsed.prompt,
+      geo.locationCode,
+      geo.languageCode,
+      hasExplicitGeo
+        ? {
+            market: geo.market,
+            locale: geo.locale,
+            region: geo.region,
+          }
+        : undefined,
+    );
+
+    const requestedEngineNormalized = parsed.engine.trim().toLowerCase();
+    const isAliasedEngine = requestedEngineNormalized !== adapter.engine;
 
     const lookup = await cache.getOrExecute(
       cacheKey,
@@ -63,10 +88,17 @@ export class CollectService {
             async () => {
               const retryResult = await withRetry(
                 async (attempt) => {
-                  const baseAttemptTimeout =
-                    adapter.region === 'domestic'
-                      ? config.budget.domesticTimeoutMs
-                      : config.budget.overseasTimeoutMs;
+                  let baseAttemptTimeout: number;
+                  if (adapter.engine === 'doubao') {
+                    baseAttemptTimeout =
+                      config.domestic.doubao.timeoutMs ??
+                      Math.min(DEFAULT_DOUBAO_ADAPTIVE_TIMEOUT_MS, config.budget.domesticTimeoutMs);
+                  } else if (adapter.region === 'domestic') {
+                    baseAttemptTimeout = config.budget.domesticTimeoutMs;
+                  } else {
+                    baseAttemptTimeout = config.budget.overseasTimeoutMs;
+                  }
+
                   const remainingMs = deadlineMs - Date.now();
                   if (remainingMs <= 0) {
                     throw upstreamTimeoutError('Gateway request deadline exceeded', {
@@ -80,13 +112,16 @@ export class CollectService {
                     prompt: parsed.prompt,
                     engine: adapter.engine,
                     requestId,
-                    locationCode,
-                    languageCode,
+                    locationCode: geo.locationCode,
+                    languageCode: geo.languageCode,
+                    ...(geo.market !== undefined ? { market: geo.market } : {}),
+                    ...(geo.locale !== undefined ? { locale: geo.locale } : {}),
+                    ...(geo.region !== undefined ? { region: geo.region } : {}),
                     signal: flightController.signal,
                     timeoutMs: attemptTimeoutMs,
                   });
 
-                  return normalizeResponse({
+                  const normalized = normalizeResponse({
                     result: adapterResult,
                     prompt: parsed.prompt,
                     meta: {
@@ -98,6 +133,20 @@ export class CollectService {
                       cached: false,
                     },
                   });
+
+                  if (hasExplicitGeo) {
+                    if (geo.market !== undefined) {
+                      normalized.rawMeta.market = geo.market;
+                    }
+                    if (geo.locale !== undefined) {
+                      normalized.rawMeta.locale = geo.locale;
+                    }
+                    if (geo.region !== undefined) {
+                      normalized.rawMeta.countryCode = geo.region;
+                    }
+                  }
+
+                  return normalized;
                 },
                 {
                   maxRetries: config.budget.maxUpstreamRetries,
@@ -134,6 +183,7 @@ export class CollectService {
         requestId,
         latencyMs,
         cached: lookup.cached,
+        ...(isAliasedEngine ? { requestedEngine: requestedEngineNormalized } : {}),
       },
     };
 

@@ -96,13 +96,14 @@ export function createDataForSeoAdapters(
       return client.isConfigured();
     },
     async collect(ctx: CollectContext): Promise<AdapterResult> {
+      const countryIso = ctx.region ?? config.countryIso;
       const callResult = await client.postTask({
         endpointPath: DATAFORSEO_ENDPOINTS.perplexity,
         payload: {
           user_prompt: ctx.prompt,
           model_name: config.perplexityModel,
           web_search: true,
-          web_search_country_iso_code: config.countryIso,
+          web_search_country_iso_code: countryIso,
         },
         ctx,
       });
@@ -123,13 +124,14 @@ export function createDataForSeoAdapters(
       return client.isConfigured();
     },
     async collect(ctx: CollectContext): Promise<AdapterResult> {
+      const countryIso = ctx.region ?? config.countryIso;
       const payload =
         geminiConfig.mode === 'responses'
           ? {
               user_prompt: ctx.prompt,
               model_name: config.geminiModel,
               web_search: true,
-              web_search_country_iso_code: config.countryIso,
+              web_search_country_iso_code: countryIso,
             }
           : {
               keyword: ctx.prompt,
@@ -159,13 +161,14 @@ export function createDataForSeoAdapters(
       return client.isConfigured();
     },
     async collect(ctx: CollectContext): Promise<AdapterResult> {
+      const countryIso = ctx.region ?? config.countryIso;
       const callResult = await client.postTask({
         endpointPath: DATAFORSEO_ENDPOINTS.claude,
         payload: {
           user_prompt: ctx.prompt,
           model_name: config.claudeModel,
           web_search: true,
-          web_search_country_iso_code: config.countryIso,
+          web_search_country_iso_code: countryIso,
         },
         ctx,
       });

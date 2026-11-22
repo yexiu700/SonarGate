@@ -71,9 +71,9 @@ describe('Tier 4 Scenario 3: Partial-Degradation Production Batch & GeoMix Error
     );
 
     // 6. wenxin: unconfigured -> 501 ENGINE_NOT_CONFIGURED (no upstream call)
-    // 7. yuanbao: unsupported legacy engine -> 400 UNSUPPORTED_ENGINE (no upstream call)
+    // 7. nami: planned engine -> 501 ENGINE_NOT_IMPLEMENTED (no upstream call)
 
-    const [doubaoRes, tongyiRes, chatgptRes, zhipuRes, claudeRes, wenxinRes, yuanbaoRes] =
+    const [doubaoRes, tongyiRes, chatgptRes, zhipuRes, claudeRes, wenxinRes, namiRes] =
       await Promise.all([
         harness.collect(
           { engine: 'doubao', prompt: '品牌可见度批量采集' },
@@ -100,8 +100,8 @@ describe('Tier 4 Scenario 3: Partial-Degradation Production Batch & GeoMix Error
           { requestId: 'batch-wenxin' },
         ),
         harness.collect(
-          { engine: 'yuanbao', prompt: '品牌可见度批量采集' },
-          { requestId: 'batch-yuanbao' },
+          { engine: 'nami', prompt: '品牌可见度批量采集' },
+          { requestId: 'batch-nami' },
         ),
       ]);
 
@@ -154,12 +154,12 @@ describe('Tier 4 Scenario 3: Partial-Degradation Production Batch & GeoMix Error
     });
     expect(harness.upstreams.getHitCount('wenxin')).toBe(0);
 
-    // 7. yuanbao -> 501 ENGINE_NOT_IMPLEMENTED
-    expect(yuanbaoRes.statusCode).toBe(501);
-    expect(errorEnvelopeSchema.parse(yuanbaoRes.json()).error).toMatchObject({
+    // 7. nami -> 501 ENGINE_NOT_IMPLEMENTED
+    expect(namiRes.statusCode).toBe(501);
+    expect(errorEnvelopeSchema.parse(namiRes.json()).error).toMatchObject({
       code: 'ENGINE_NOT_IMPLEMENTED',
       retryable: false,
-      requestId: 'batch-yuanbao',
+      requestId: 'batch-nami',
     });
   });
 });

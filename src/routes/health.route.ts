@@ -1,4 +1,5 @@
 import type { FastifyInstance } from 'fastify';
+import { ENGINE_ALIASES } from '../core/contract.js';
 import type { EngineRegistry } from '../core/registry.js';
 
 export interface HealthRouteOptions {
@@ -28,6 +29,9 @@ export function registerHealthRoutes(app: FastifyInstance, options: HealthRouteO
       ready,
       configuredCount,
       totalSupported,
+      engines: options.registry.getReadyEngineSummaries(),
+      plannedEngines: options.registry.getPlannedStatuses(),
+      aliases: ENGINE_ALIASES,
     });
   });
 }

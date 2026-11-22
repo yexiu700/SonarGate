@@ -1,9 +1,10 @@
+import { splitFanOutQueryString } from '../../core/normalizer.js';
 import type { RawCitation } from '../../core/types.js';
 
 const FORBIDDEN_MERGE_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
 
 export interface ExtractCitationOptions {
-  /** When true (Tongyi), falls back to `site_name` if snippet/content/summary/desc are absent. */
+  /** When true (Tongyi / Yuanbao), falls back to `site_name` if snippet/content/summary/desc are absent. */
   fallbackSnippetToSiteName?: boolean | undefined;
 }
 
@@ -56,28 +57,29 @@ export function trimTrailingSlashes(url: string): string {
   return url.replace(/\/+$/, '');
 }
 
-/** Deduplicate trimmed non-empty strings preserving first occurrence (case-insensitive key). */
+/**
+ * Splits semicolon/newline-concatenated query strings and deduplicates
+ * trimmed non-empty strings preserving first occurrence (case-insensitive key).
+ */
 export function dedupeQueryStrings(items: readonly string[]): string[] {
   const seen = new Set<string>();
   const result: string[] = [];
 
   for (const raw of items) {
-    const trimmed = raw.trim();
-    if (trimmed.length === 0) {
-      continue;
+    for (const part of splitFanOutQueryString(raw)) {
+      const key = part.toLowerCase();
+      if (seen.has(key)) {
+        continue;
+      }
+      seen.add(key);
+      result.push(part);
     }
-    const key = trimmed.toLowerCase();
-    if (seen.has(key)) {
-      continue;
-    }
-    seen.add(key);
-    result.push(trimmed);
   }
 
   return result;
 }
 
-/** Extract trimmed non-empty strings from an unknown array (or single string), deduplicated preserving order. */
+/** Extract trimmed non-empty strings from an unknown array (or single string), split & deduplicated preserving order. */
 export function extractStringQueries(value: unknown): string[] {
   if (typeof value === 'string') {
     return dedupeQueryStrings([value]);
@@ -95,14 +97,127 @@ export function extractStringQueries(value: unknown): string[] {
   return dedupeQueryStrings(collected);
 }
 
+/** Extracts text from string or OpenAI/Anthropic multipart content blocks. */
+export function extractMessageText(content: unknown): string {
+  const direct = asString(content);
+  if (direct !== undefined) {
+    return direct;
+  }
+
+  if (Array.isArray(content)) {
+    const parts: string[] = [];
+    for (const part of content) {
+      if (typeof part === 'string') {
+        parts.push(part);
+      } else if (isRecord(part)) {
+        const partType = asNonEmptyString(part['type']);
+        if (partType === 'thinking' || partType === 'reasoning') {
+          continue;
+        }
+        const text = asString(part['text']) ?? asString(part['content']);
+        if (text !== undefined) {
+          parts.push(text);
+        }
+      }
+    }
+    return parts.join('\n');
+  }
+
+  return '';
+}
+
+function firstNonEmptyFromRecords(
+  records: readonly Record<string, unknown>[],
+  keys: readonly string[],
+): string | undefined {
+  for (const rec of records) {
+    for (const key of keys) {
+      const val = asNonEmptyString(rec[key]);
+      if (val !== undefined) {
+        return val;
+      }
+    }
+  }
+  return undefined;
+}
+
+function firstPositiveIntFromRecords(
+  records: readonly Record<string, unknown>[],
+  keys: readonly string[],
+): number | undefined {
+  for (const rec of records) {
+    for (const key of keys) {
+      const val = asPositiveInt(rec[key]);
+      if (val !== undefined) {
+        return val;
+      }
+    }
+  }
+  return undefined;
+}
+
+function unwrapCitationEntry(entry: Record<string, unknown>): Record<string, unknown>[] {
+  const candidates: Record<string, unknown>[] = [];
+  for (const nestedKey of [
+    'url_citation',
+    'web',
+    'retrievedContext',
+    'retrieved_context',
+    'source',
+  ] as const) {
+    const nested = entry[nestedKey];
+    if (isRecord(nested)) {
+      candidates.push(nested);
+    }
+  }
+  candidates.push(entry);
+  return candidates;
+}
+
+function upsertCitation(
+  byUrl: Map<string, RawCitation>,
+  citations: RawCitation[],
+  incoming: RawCitation,
+): void {
+  const url = incoming.url.trim();
+  if (url.length === 0) {
+    return;
+  }
+
+  const existing = byUrl.get(url);
+  if (existing !== undefined) {
+    if (existing.title === undefined && incoming.title !== undefined) {
+      existing.title = incoming.title;
+    }
+    if (existing.snippet === undefined && incoming.snippet !== undefined) {
+      existing.snippet = incoming.snippet;
+    }
+    if (existing.position === undefined && incoming.position !== undefined) {
+      existing.position = incoming.position;
+    }
+    return;
+  }
+
+  const entry: RawCitation = {
+    url,
+    ...(incoming.title !== undefined ? { title: incoming.title } : {}),
+    ...(incoming.snippet !== undefined ? { snippet: incoming.snippet } : {}),
+    ...(incoming.position !== undefined ? { position: incoming.position } : {}),
+  };
+  byUrl.set(url, entry);
+  citations.push(entry);
+}
+
 /**
  * Defensive citation extractor:
- * - URL:     url ?? link ?? href ?? source_url
- * - Title:   title ?? name ?? site_name
- * - Snippet: snippet ?? content ?? summary ?? desc (plus site_name if options.fallbackSnippetToSiteName)
- * - Position (optional): positive int from position ?? index
+ * - Unwraps nested `url_citation`, `web`, `retrievedContext`, `retrieved_context`, `source`
+ * - URL:     url ?? uri ?? link ?? href ?? source_url ?? page_url ?? target_url
+ * - Title:   title ?? name ?? site_name ?? source_name ?? sitename ?? domain
+ * - Snippet: snippet ?? content ?? summary ?? desc ?? description ?? cited_text ?? text ?? abstract ?? quote
+ *            (plus site_name if options.fallbackSnippetToSiteName)
+ * - Position (optional): positive int from position ?? index ?? rank ?? rank_absolute
  * Also accepts bare string URL elements (e.g. DeepSeek/Perplexity `data.citations: ["https://..."]`).
- * Deduplicates by trimmed URL preserving first occurrence.
+ * Deduplicates by trimmed URL preserving first occurrence while enriching missing metadata.
  */
 export function extractCitations(
   rawList: unknown,
@@ -112,17 +227,15 @@ export function extractCitations(
     return [];
   }
 
-  const seenUrls = new Set<string>();
+  const byUrl = new Map<string, RawCitation>();
   const citations: RawCitation[] = [];
 
   for (const entry of rawList) {
     if (typeof entry === 'string') {
       const url = asNonEmptyString(entry);
-      if (url === undefined || seenUrls.has(url)) {
-        continue;
+      if (url !== undefined) {
+        upsertCitation(byUrl, citations, { url });
       }
-      seenUrls.add(url);
-      citations.push({ url });
       continue;
     }
 
@@ -130,42 +243,59 @@ export function extractCitations(
       continue;
     }
 
-    const url =
-      asNonEmptyString(entry['url']) ??
-      asNonEmptyString(entry['link']) ??
-      asNonEmptyString(entry['href']) ??
-      asNonEmptyString(entry['source_url']);
+    const records = unwrapCitationEntry(entry);
+    const url = firstNonEmptyFromRecords(records, [
+      'url',
+      'uri',
+      'link',
+      'href',
+      'source_url',
+      'page_url',
+      'target_url',
+    ]);
 
-    if (url === undefined || seenUrls.has(url)) {
+    if (url === undefined) {
       continue;
     }
 
-    seenUrls.add(url);
-
-    const title =
-      asNonEmptyString(entry['title']) ??
-      asNonEmptyString(entry['name']) ??
-      asNonEmptyString(entry['site_name']);
+    const title = firstNonEmptyFromRecords(records, [
+      'title',
+      'name',
+      'site_name',
+      'source_name',
+      'sitename',
+      'domain',
+    ]);
 
     const snippet =
-      asNonEmptyString(entry['snippet']) ??
-      asNonEmptyString(entry['content']) ??
-      asNonEmptyString(entry['summary']) ??
-      asNonEmptyString(entry['desc']) ??
+      firstNonEmptyFromRecords(records, [
+        'snippet',
+        'content',
+        'summary',
+        'desc',
+        'description',
+        'cited_text',
+        'text',
+        'abstract',
+        'quote',
+      ]) ??
       (options?.fallbackSnippetToSiteName === true
-        ? asNonEmptyString(entry['site_name'])
+        ? firstNonEmptyFromRecords(records, ['site_name', 'sitename', 'source_name'])
         : undefined);
 
-    const position = asPositiveInt(entry['position']) ?? asPositiveInt(entry['index']);
+    const position = firstPositiveIntFromRecords(records, [
+      'position',
+      'index',
+      'rank',
+      'rank_absolute',
+    ]);
 
-    const citation: RawCitation = {
+    upsertCitation(byUrl, citations, {
       url,
       ...(title !== undefined ? { title } : {}),
       ...(snippet !== undefined ? { snippet } : {}),
       ...(position !== undefined ? { position } : {}),
-    };
-
-    citations.push(citation);
+    });
   }
 
   return citations;
@@ -173,27 +303,117 @@ export function extractCitations(
 
 /**
  * Merge multiple raw citation sources in priority order and deduplicate by trimmed URL
- * preserving first occurrence.
+ * preserving first occurrence while enriching missing title/snippet/position from later sources.
  */
 export function mergeCitations(
   sources: readonly unknown[],
   options?: ExtractCitationOptions,
 ): RawCitation[] {
-  const seenUrls = new Set<string>();
+  const byUrl = new Map<string, RawCitation>();
   const merged: RawCitation[] = [];
 
   for (const source of sources) {
     const extracted = extractCitations(source, options);
     for (const citation of extracted) {
-      if (seenUrls.has(citation.url)) {
-        continue;
-      }
-      seenUrls.add(citation.url);
-      merged.push(citation);
+      upsertCitation(byUrl, merged, citation);
     }
   }
 
   return merged;
+}
+
+/** Deduplicate already-extracted RawCitation lists while enriching missing title/snippet/position. */
+export function mergeRawCitationLists(lists: readonly (readonly RawCitation[])[]): RawCitation[] {
+  const byUrl = new Map<string, RawCitation>();
+  const merged: RawCitation[] = [];
+
+  for (const list of lists) {
+    for (const item of list) {
+      upsertCitation(byUrl, merged, item);
+    }
+  }
+
+  return merged;
+}
+
+/**
+ * Extracts search queries and any embedded citations from OpenAI-style `tool_calls[]`
+ * (e.g. Kimi `$web_search`, Claude/DeepSeek/relay search tool calls).
+ */
+export function extractToolCallSearchInfo(toolCalls: unknown): {
+  queries: string[];
+  citations: RawCitation[];
+} {
+  if (!Array.isArray(toolCalls)) {
+    return { queries: [], citations: [] };
+  }
+
+  const queries: string[] = [];
+  const citationSources: unknown[] = [];
+
+  for (const tc of toolCalls) {
+    if (!isRecord(tc)) {
+      continue;
+    }
+    const fn = isRecord(tc['function']) ? tc['function'] : undefined;
+    const fnName = (
+      asNonEmptyString(fn?.['name']) ??
+      asNonEmptyString(tc['name']) ??
+      ''
+    ).toLowerCase();
+    if (fnName.length > 0 && !fnName.includes('search') && !fnName.includes('browse')) {
+      continue;
+    }
+
+    const rawArgs = fn?.['arguments'] ?? tc['arguments'] ?? tc['input'];
+    let parsedArgs: Record<string, unknown> | undefined;
+    if (isRecord(rawArgs)) {
+      parsedArgs = rawArgs;
+    } else if (typeof rawArgs === 'string') {
+      try {
+        const parsed: unknown = JSON.parse(rawArgs);
+        if (isRecord(parsed)) {
+          parsedArgs = parsed;
+        }
+      } catch {
+        // Ignore non-JSON arguments
+      }
+    }
+
+    if (parsedArgs === undefined) {
+      continue;
+    }
+
+    for (const key of [
+      'query',
+      'queries',
+      'search_query',
+      'search_queries',
+      'keywords',
+      'q',
+    ] as const) {
+      queries.push(...extractStringQueries(parsedArgs[key]));
+    }
+
+    for (const key of [
+      'search_results',
+      'search_result',
+      'citations',
+      'sources',
+      'results',
+      'web_pages',
+      'urls',
+    ] as const) {
+      if (parsedArgs[key] !== undefined) {
+        citationSources.push(parsedArgs[key]);
+      }
+    }
+  }
+
+  return {
+    queries: dedupeQueryStrings(queries),
+    citations: mergeCitations(citationSources),
+  };
 }
 
 function cloneValue(value: unknown): unknown {

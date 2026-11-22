@@ -1,7 +1,7 @@
 import type { FastifyInstance, preHandlerHookHandler } from 'fastify';
 import type { AppConfig } from '../config.js';
 import type { ResponseCache } from '../core/cache.js';
-import type { CollectResponse } from '../core/contract.js';
+import { ENGINE_ALIASES, type CollectResponse } from '../core/contract.js';
 import type { EngineRegistry } from '../core/registry.js';
 
 export interface EnginesRouteOptions {
@@ -21,6 +21,7 @@ export function registerEnginesRoutes(app: FastifyInstance, options: EnginesRout
       return reply.code(200).send({
         engines: options.registry.getStatuses(),
         plannedEngines: options.registry.getPlannedStatuses(),
+        aliases: ENGINE_ALIASES,
         configuredCount: options.registry.getConfiguredCount(),
         totalSupported: options.registry.getTotalSupported(),
         cache: {

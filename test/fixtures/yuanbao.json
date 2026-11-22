@@ -1,0 +1,42 @@
+{
+  "id": "hunyuan-yuanbao-001",
+  "object": "chat.completion",
+  "created": 1767225600,
+  "model": "hunyuan-turbos-latest",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "腾讯元宝联网检索显示，2026 年中小企业 CRM 选型可优先考察纷享销客、销帮帮与企业微信深度集成方案，兼顾私域跟进与轻量化上线。"
+      },
+      "finish_reason": "stop"
+    }
+  ],
+  "search_info": {
+    "search_results": [
+      {
+        "index": 1,
+        "url": "https://mp.weixin.qq.com/s/yuanbao-crm-2026?utm_source=sogou",
+        "title": "2026中小企业企微CRM选型评测",
+        "text": "重点对比企业微信侧边栏、线索自动分配与年度席位价格。",
+        "site_name": "微信公众号"
+      },
+      {
+        "index": 2,
+        "url": "https://www.sogou.com/crm/guide-2026",
+        "title": "中小企业CRM落地避坑指南",
+        "site_name": "搜狗百科"
+      }
+    ],
+    "search_queries": [
+      "2026中小企业CRM推荐；企微CRM对比",
+      "轻量级SaaS CRM价格"
+    ]
+  },
+  "usage": {
+    "prompt_tokens": 84,
+    "completion_tokens": 216,
+    "total_tokens": 300
+  }
+}

@@ -22,8 +22,11 @@ on:
           - doubao
           - deepseek
           - tongyi
+          - qwen
           - zhipu
           - wenxin
+          - yuanbao
+          - kimi
           - chatgpt
           - perplexity
           - gemini
@@ -36,6 +39,21 @@ on:
         type: string
       target_url:
         description: 'Optional deployed gateway URL (e.g. https://sonargate.example.com/v1/collect); leave blank to run local pnpm smoke'
+        required: false
+        default: ''
+        type: string
+      market:
+        description: 'Optional market (CN or GLOBAL)'
+        required: false
+        default: ''
+        type: string
+      locale:
+        description: 'Optional BCP-47 locale (e.g. zh-CN, en-US, de-DE, ja-JP)'
+        required: false
+        default: ''
+        type: string
+      region:
+        description: 'Optional ISO-3166-1 alpha-2 region code (e.g. CN, US, GB, DE, JP)'
         required: false
         default: ''
         type: string
@@ -88,6 +106,9 @@ jobs:
           SMOKE_MODE: ${{ inputs.mode }}
           SMOKE_ENGINE: ${{ inputs.engine }}
           SMOKE_PROMPT: ${{ inputs.prompt }}
+          SMOKE_MARKET: ${{ inputs.market }}
+          SMOKE_LOCALE: ${{ inputs.locale }}
+          SMOKE_REGION: ${{ inputs.region }}
           SMOKE_LOCATION_CODE: ${{ inputs.location_code }}
           SMOKE_LANGUAGE_CODE: ${{ inputs.language_code }}
           SMOKE_NO_CACHE: ${{ inputs.no_cache }}
@@ -101,12 +122,19 @@ jobs:
           TONGYI_API_KEY: ${{ secrets.TONGYI_API_KEY }}
           TONGYI_BASE_URL: ${{ vars.TONGYI_BASE_URL }}
           TONGYI_MODEL: ${{ vars.TONGYI_MODEL }}
+          QWEN_API_KEY: ${{ secrets.QWEN_API_KEY }}
           ZHIPU_API_KEY: ${{ secrets.ZHIPU_API_KEY }}
           ZHIPU_BASE_URL: ${{ vars.ZHIPU_BASE_URL }}
           ZHIPU_MODEL: ${{ vars.ZHIPU_MODEL }}
           WENXIN_API_KEY: ${{ secrets.WENXIN_API_KEY }}
           WENXIN_BASE_URL: ${{ vars.WENXIN_BASE_URL }}
           WENXIN_MODEL: ${{ vars.WENXIN_MODEL }}
+          YUANBAO_API_KEY: ${{ secrets.YUANBAO_API_KEY }}
+          YUANBAO_BASE_URL: ${{ vars.YUANBAO_BASE_URL }}
+          YUANBAO_MODEL: ${{ vars.YUANBAO_MODEL }}
+          KIMI_API_KEY: ${{ secrets.KIMI_API_KEY }}
+          KIMI_BASE_URL: ${{ vars.KIMI_BASE_URL }}
+          KIMI_MODEL: ${{ vars.KIMI_MODEL }}
           DATAFORSEO_LOGIN: ${{ secrets.DATAFORSEO_LOGIN }}
           DATAFORSEO_PASSWORD: ${{ secrets.DATAFORSEO_PASSWORD }}
           DATAFORSEO_BASE_URL: ${{ vars.DATAFORSEO_BASE_URL }}
@@ -121,6 +149,15 @@ jobs:
             ARGS+=(--all-configured)
           else
             ARGS+=(--engine "$SMOKE_ENGINE")
+          fi
+          if [ -n "$SMOKE_MARKET" ]; then
+            ARGS+=(--market "$SMOKE_MARKET")
+          fi
+          if [ -n "$SMOKE_LOCALE" ]; then
+            ARGS+=(--locale "$SMOKE_LOCALE")
+          fi
+          if [ -n "$SMOKE_REGION" ]; then
+            ARGS+=(--region "$SMOKE_REGION")
           fi
           if [ -n "$SMOKE_LOCATION_CODE" ]; then
             ARGS+=(--location-code "$SMOKE_LOCATION_CODE")
@@ -141,6 +178,9 @@ jobs:
           SMOKE_MODE: ${{ inputs.mode }}
           SMOKE_ENGINE: ${{ inputs.engine }}
           SMOKE_PROMPT: ${{ inputs.prompt }}
+          SMOKE_MARKET: ${{ inputs.market }}
+          SMOKE_LOCALE: ${{ inputs.locale }}
+          SMOKE_REGION: ${{ inputs.region }}
           SMOKE_LOCATION_CODE: ${{ inputs.location_code }}
           SMOKE_LANGUAGE_CODE: ${{ inputs.language_code }}
           SMOKE_NO_CACHE: ${{ inputs.no_cache }}
@@ -188,6 +228,9 @@ jobs:
             const payload = {
               engine,
               prompt: process.env.SMOKE_PROMPT,
+              ...(process.env.SMOKE_MARKET ? { market: process.env.SMOKE_MARKET } : {}),
+              ...(process.env.SMOKE_LOCALE ? { locale: process.env.SMOKE_LOCALE } : {}),
+              ...(process.env.SMOKE_REGION ? { region: process.env.SMOKE_REGION } : {}),
               ...(process.env.SMOKE_LOCATION_CODE ? { locationCode: Number(process.env.SMOKE_LOCATION_CODE) } : {}),
               ...(process.env.SMOKE_LANGUAGE_CODE ? { languageCode: process.env.SMOKE_LANGUAGE_CODE } : {}),
               ...(process.env.SMOKE_NO_CACHE === 'true' ? { noCache: true } : {}),

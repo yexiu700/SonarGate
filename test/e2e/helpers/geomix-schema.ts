@@ -1,6 +1,14 @@
 import { z } from 'zod';
 
-export const DOMESTIC_ENGINES = ['doubao', 'deepseek', 'tongyi', 'zhipu', 'wenxin'] as const;
+export const DOMESTIC_ENGINES = [
+  'doubao',
+  'deepseek',
+  'tongyi',
+  'zhipu',
+  'wenxin',
+  'yuanbao',
+  'kimi',
+] as const;
 
 export const OVERSEAS_ENGINES = [
   'chatgpt',

@@ -181,7 +181,7 @@ describe('Overseas OpenAI-compatible relay adapter & config resolution', () => {
 
     expect(result.answerText).toBe('AI Overview summary from Gemini relay.');
     expect(result.citations).toEqual([
-      { url: 'https://example.com/crm-2026' },
+      { url: 'https://example.com/crm-2026', title: 'CRM 2026 Guide' },
       { url: 'https://example.com/top-crm' },
     ]);
     expect(result.fanOutQueries).toEqual(['best crm 2026', 'sme crm comparison']);

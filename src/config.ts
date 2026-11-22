@@ -47,6 +47,12 @@ export interface AppConfig {
       baseUrl: string;
       model: string;
       extraBody: Record<string, unknown>;
+      stream: boolean;
+      concurrency?: number | undefined;
+      timeoutMs?: number | undefined;
+      firstByteTimeoutMs: number;
+      idleTimeoutMs: number;
+      minIntervalMs: number;
     };
     deepseek: {
       apiKey: string;
@@ -70,6 +76,19 @@ export interface AppConfig {
       apiKey: string;
       baseUrl: string;
       model: string;
+    };
+    yuanbao: {
+      apiKey: string;
+      baseUrl: string;
+      model: string;
+      extraBody: Record<string, unknown>;
+    };
+    kimi: {
+      apiKey: string;
+      baseUrl: string;
+      model: string;
+      extraBody: Record<string, unknown>;
+      maxSearchRounds: number;
     };
   };
   overseas: {
@@ -129,8 +148,54 @@ function intEnv(
   }, z.number().int().min(min).max(max).default(defaultVal));
 }
 
+function optionalIntEnv(
+  min: number,
+  max: number,
+): z.ZodType<number | undefined, z.ZodTypeDef, unknown> {
+  return z.preprocess((val) => {
+    const normalized = emptyToUndefined(val);
+    if (normalized === undefined) {
+      return undefined;
+    }
+    if (typeof normalized === 'string') {
+      const trimmed = normalized.trim();
+      if (/^-?\d+$/.test(trimmed)) {
+        return Number(trimmed);
+      }
+      return normalized;
+    }
+    return normalized;
+  }, z.number().int().min(min).max(max).optional());
+}
+
+function booleanEnv(defaultVal: boolean): z.ZodType<boolean, z.ZodTypeDef, unknown> {
+  return z.preprocess((val) => {
+    const normalized = emptyToUndefined(val);
+    if (normalized === undefined) {
+      return undefined;
+    }
+    if (typeof normalized === 'boolean') {
+      return normalized;
+    }
+    if (typeof normalized === 'string') {
+      const lower = normalized.trim().toLowerCase();
+      if (lower === 'true' || lower === '1' || lower === 'yes') {
+        return true;
+      }
+      if (lower === 'false' || lower === '0' || lower === 'no') {
+        return false;
+      }
+    }
+    return normalized;
+  }, z.boolean().default(defaultVal));
+}
+
 function stringEnv(defaultVal: string): z.ZodType<string, z.ZodTypeDef, unknown> {
   return z.preprocess(emptyToUndefined, z.string().trim().min(1).default(defaultVal));
+}
+
+function optionalStringEnv(): z.ZodType<string | undefined, z.ZodTypeDef, unknown> {
+  return z.preprocess(emptyToUndefined, z.string().trim().min(1).optional());
 }
 
 function optionalSecretEnv(): z.ZodType<string, z.ZodTypeDef, unknown> {
@@ -244,6 +309,12 @@ const rawEnvSchema = z
     DOUBAO_BASE_URL: urlEnv('https://ark.cn-beijing.volces.com/api/v3'),
     DOUBAO_MODEL: optionalSecretEnv(),
     DOUBAO_EXTRA_BODY_JSON: jsonObjectEnv({}),
+    DOUBAO_STREAM: booleanEnv(true),
+    DOUBAO_CONCURRENCY: optionalIntEnv(1, 100),
+    DOUBAO_TIMEOUT_MS: optionalIntEnv(1_000, 300_000),
+    DOUBAO_FIRST_BYTE_TIMEOUT_MS: intEnv(500, 120_000, 18_000),
+    DOUBAO_IDLE_TIMEOUT_MS: intEnv(500, 120_000, 25_000),
+    DOUBAO_MIN_INTERVAL_MS: intEnv(0, 10_000, 0),
 
     // Domestic 2: DeepSeek
     DEEPSEEK_API_KEY: optionalSecretEnv(),
@@ -251,11 +322,15 @@ const rawEnvSchema = z
     DEEPSEEK_MODEL: stringEnv('deepseek-chat'),
     DEEPSEEK_SEARCH_PARAMS_JSON: jsonObjectEnv({ web_search: true }),
 
-    // Domestic 3: Tongyi
+    // Domestic 3: Tongyi / Qwen (Alibaba DashScope)
     TONGYI_API_KEY: optionalSecretEnv(),
-    TONGYI_BASE_URL: urlEnv('https://dashscope.aliyuncs.com/compatible-mode/v1'),
-    TONGYI_MODEL: stringEnv('qwen-plus'),
-    TONGYI_SEARCH_STRATEGY: stringEnv('standard'),
+    TONGYI_BASE_URL: optionalUrlEnv(),
+    TONGYI_MODEL: optionalStringEnv(),
+    TONGYI_SEARCH_STRATEGY: optionalStringEnv(),
+    QWEN_API_KEY: optionalSecretEnv(),
+    QWEN_BASE_URL: optionalUrlEnv(),
+    QWEN_MODEL: optionalStringEnv(),
+    QWEN_SEARCH_STRATEGY: optionalStringEnv(),
 
     // Domestic 4: Zhipu
     ZHIPU_API_KEY: optionalSecretEnv(),
@@ -267,6 +342,25 @@ const rawEnvSchema = z
     WENXIN_API_KEY: optionalSecretEnv(),
     WENXIN_BASE_URL: urlEnv('https://qianfan.baidubce.com/v2'),
     WENXIN_MODEL: stringEnv('ernie-4.5-turbo-128k'),
+
+    // Domestic 6: Yuanbao (Tencent Hunyuan)
+    YUANBAO_API_KEY: optionalSecretEnv(),
+    HUNYUAN_API_KEY: optionalSecretEnv(),
+    YUANBAO_BASE_URL: optionalUrlEnv(),
+    HUNYUAN_BASE_URL: optionalUrlEnv(),
+    YUANBAO_MODEL: optionalStringEnv(),
+    HUNYUAN_MODEL: optionalStringEnv(),
+    YUANBAO_EXTRA_BODY_JSON: jsonObjectEnv({}),
+
+    // Domestic 7: Kimi (Moonshot AI)
+    KIMI_API_KEY: optionalSecretEnv(),
+    MOONSHOT_API_KEY: optionalSecretEnv(),
+    KIMI_BASE_URL: optionalUrlEnv(),
+    MOONSHOT_BASE_URL: optionalUrlEnv(),
+    KIMI_MODEL: optionalStringEnv(),
+    MOONSHOT_MODEL: optionalStringEnv(),
+    KIMI_EXTRA_BODY_JSON: jsonObjectEnv({}),
+    KIMI_MAX_SEARCH_ROUNDS: intEnv(1, 5, 3),
 
     // Overseas: DataForSEO
     DATAFORSEO_LOGIN: optionalSecretEnv(),
@@ -416,6 +510,12 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
         baseUrl: data.DOUBAO_BASE_URL,
         model: data.DOUBAO_MODEL,
         extraBody: data.DOUBAO_EXTRA_BODY_JSON,
+        stream: data.DOUBAO_STREAM,
+        ...(data.DOUBAO_CONCURRENCY !== undefined ? { concurrency: data.DOUBAO_CONCURRENCY } : {}),
+        ...(data.DOUBAO_TIMEOUT_MS !== undefined ? { timeoutMs: data.DOUBAO_TIMEOUT_MS } : {}),
+        firstByteTimeoutMs: data.DOUBAO_FIRST_BYTE_TIMEOUT_MS,
+        idleTimeoutMs: data.DOUBAO_IDLE_TIMEOUT_MS,
+        minIntervalMs: data.DOUBAO_MIN_INTERVAL_MS,
       },
       deepseek: {
         apiKey: data.DEEPSEEK_API_KEY,
@@ -424,10 +524,13 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
         searchParams: data.DEEPSEEK_SEARCH_PARAMS_JSON,
       },
       tongyi: {
-        apiKey: data.TONGYI_API_KEY,
-        baseUrl: data.TONGYI_BASE_URL,
-        model: data.TONGYI_MODEL,
-        searchStrategy: data.TONGYI_SEARCH_STRATEGY,
+        apiKey: data.TONGYI_API_KEY || data.QWEN_API_KEY,
+        baseUrl:
+          data.TONGYI_BASE_URL ||
+          data.QWEN_BASE_URL ||
+          'https://dashscope.aliyuncs.com/compatible-mode/v1',
+        model: data.TONGYI_MODEL ?? data.QWEN_MODEL ?? 'qwen-plus',
+        searchStrategy: data.TONGYI_SEARCH_STRATEGY ?? data.QWEN_SEARCH_STRATEGY ?? 'standard',
       },
       zhipu: {
         apiKey: data.ZHIPU_API_KEY,
@@ -439,6 +542,22 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
         apiKey: data.WENXIN_API_KEY,
         baseUrl: data.WENXIN_BASE_URL,
         model: data.WENXIN_MODEL,
+      },
+      yuanbao: {
+        apiKey: data.YUANBAO_API_KEY || data.HUNYUAN_API_KEY,
+        baseUrl:
+          data.YUANBAO_BASE_URL ||
+          data.HUNYUAN_BASE_URL ||
+          'https://api.hunyuan.cloud.tencent.com/v1',
+        model: data.YUANBAO_MODEL ?? data.HUNYUAN_MODEL ?? 'hunyuan-turbos-latest',
+        extraBody: data.YUANBAO_EXTRA_BODY_JSON,
+      },
+      kimi: {
+        apiKey: data.KIMI_API_KEY || data.MOONSHOT_API_KEY,
+        baseUrl: data.KIMI_BASE_URL || data.MOONSHOT_BASE_URL || 'https://api.moonshot.cn/v1',
+        model: data.KIMI_MODEL ?? data.MOONSHOT_MODEL ?? 'moonshot-v1-auto',
+        extraBody: data.KIMI_EXTRA_BODY_JSON,
+        maxSearchRounds: data.KIMI_MAX_SEARCH_ROUNDS,
       },
     },
     overseas: {
@@ -524,6 +643,9 @@ export function getConfigWarnings(config: AppConfig): string[] {
   for (const [name, value] of [
     ['DOMESTIC_TIMEOUT_MS', budget.domesticTimeoutMs],
     ['OVERSEAS_TIMEOUT_MS', budget.overseasTimeoutMs],
+    ...(config.domestic.doubao.timeoutMs !== undefined
+      ? ([['DOUBAO_TIMEOUT_MS', config.domestic.doubao.timeoutMs]] as const)
+      : []),
   ] as const) {
     if (value > budget.gatewayRequestTimeoutMs) {
       warnings.push(

@@ -5,7 +5,9 @@ import type { AdapterResult, CollectContext } from '../../core/types.js';
 import { asNonEmptyString, asNonNegativeInt, isRecord, trimTrailingSlashes } from './parsing.js';
 
 export interface ChatCompletionParts {
+  choice?: Record<string, unknown> | undefined;
   message?: Record<string, unknown> | undefined;
+  finishReason?: string | undefined;
   usage?: Record<string, unknown> | undefined;
   id?: string | undefined;
   model?: string | undefined;
@@ -20,6 +22,8 @@ export interface PostChatCompletionOptions {
   engine: SupportedEngine;
   provider: string;
   endpointPath?: string | undefined;
+  timeoutMs?: number | undefined;
+  headers?: Record<string, string> | undefined;
 }
 
 export interface BuildChatCompletionMetaOptions {
@@ -33,12 +37,18 @@ export interface BuildChatCompletionMetaOptions {
 
 /** Extract common OpenAI-compatible chat/completions fields safely. */
 export function extractChatCompletionParts(data: Record<string, unknown>): ChatCompletionParts {
+  let choice: Record<string, unknown> | undefined;
   let message: Record<string, unknown> | undefined;
+  let finishReason: string | undefined;
   const choices = data['choices'];
   if (Array.isArray(choices) && choices.length > 0) {
     const firstChoice = choices[0];
-    if (isRecord(firstChoice) && isRecord(firstChoice['message'])) {
-      message = firstChoice['message'];
+    if (isRecord(firstChoice)) {
+      choice = firstChoice;
+      finishReason = asNonEmptyString(firstChoice['finish_reason']);
+      if (isRecord(firstChoice['message'])) {
+        message = firstChoice['message'];
+      }
     }
   }
 
@@ -47,7 +57,9 @@ export function extractChatCompletionParts(data: Record<string, unknown>): ChatC
   const model = asNonEmptyString(data['model']);
 
   return {
+    ...(choice !== undefined ? { choice } : {}),
     ...(message !== undefined ? { message } : {}),
+    ...(finishReason !== undefined ? { finishReason } : {}),
     ...(usage !== undefined ? { usage } : {}),
     ...(id !== undefined ? { id } : {}),
     ...(model !== undefined ? { model } : {}),
@@ -64,11 +76,15 @@ export async function postChatCompletion(
   const endpointPath = options.endpointPath ?? '/chat/completions';
   const url = `${trimTrailingSlashes(options.baseUrl)}${endpointPath}`;
 
+  const headers: Record<string, string> = {
+    ...(options.ctx.locale !== undefined ? { 'Accept-Language': options.ctx.locale } : {}),
+    ...(options.headers ?? {}),
+    Authorization: `Bearer ${options.apiKey.trim()}`,
+  };
+
   const response = await options.httpClient.postJson<unknown>(url, options.body, {
-    headers: {
-      Authorization: `Bearer ${options.apiKey.trim()}`,
-    },
-    timeoutMs: options.ctx.timeoutMs,
+    headers,
+    timeoutMs: options.timeoutMs ?? options.ctx.timeoutMs,
     signal: options.ctx.signal,
     engine: options.engine,
     provider: options.provider,

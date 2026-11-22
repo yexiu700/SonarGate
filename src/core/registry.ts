@@ -1,8 +1,10 @@
 import type { AppConfig } from '../config.js';
 import { DeepSeekAdapter } from '../adapters/domestic/deepseek.adapter.js';
 import { DoubaoAdapter } from '../adapters/domestic/doubao.adapter.js';
+import { KimiAdapter } from '../adapters/domestic/kimi.adapter.js';
 import { TongyiAdapter } from '../adapters/domestic/tongyi.adapter.js';
 import { WenxinAdapter } from '../adapters/domestic/wenxin.adapter.js';
+import { YuanbaoAdapter } from '../adapters/domestic/yuanbao.adapter.js';
 import { ZhipuAdapter } from '../adapters/domestic/zhipu.adapter.js';
 import { createDataForSeoAdapters } from '../adapters/overseas/dataforseo.adapter.js';
 import { OpenAiCompatOverseasAdapter } from '../adapters/overseas/openai-compat.adapter.js';
@@ -10,8 +12,10 @@ import {
   OVERSEAS_ENGINES,
   PLANNED_ENGINES,
   SUPPORTED_ENGINES,
+  getAliasesForEngine,
   isPlannedEngine,
   isSupportedEngine,
+  resolveEngineAlias,
   type SupportedEngine,
 } from './contract.js';
 import {
@@ -21,7 +25,13 @@ import {
 } from './errors.js';
 import type { HttpClient } from './http-client.js';
 import { Semaphore } from './semaphore.js';
-import type { EngineAdapter, EngineStatus, LoggerLike, PlannedEngineStatus } from './types.js';
+import type {
+  EngineAdapter,
+  EngineStatus,
+  LoggerLike,
+  PlannedEngineStatus,
+  ReadyEngineSummary,
+} from './types.js';
 
 export interface ResolvedEngine {
   adapter: EngineAdapter;
@@ -33,7 +43,10 @@ export interface EngineRegistryOptions {
   domesticConcurrencyPerEngine: number;
   dataforseoConcurrency: number;
   semaphoreWaitMs: number;
+  perEngineConcurrency?: Partial<Record<SupportedEngine, number>> | undefined;
 }
+
+const DEFAULT_DOUBAO_GENTLE_CONCURRENCY = 2;
 
 export class EngineRegistry {
   private readonly adapters = new Map<SupportedEngine, EngineAdapter>();
@@ -49,10 +62,11 @@ export class EngineRegistry {
     for (const adapter of options.adapters) {
       this.adapters.set(adapter.engine, adapter);
       if (adapter.region === 'domestic') {
+        const overrideConcurrency = options.perEngineConcurrency?.[adapter.engine];
         this.semaphores.set(
           adapter.engine,
           new Semaphore({
-            maxConcurrency: options.domesticConcurrencyPerEngine,
+            maxConcurrency: overrideConcurrency ?? options.domesticConcurrencyPerEngine,
             waitTimeoutMs: options.semaphoreWaitMs,
             name: adapter.engine,
           }),
@@ -69,11 +83,13 @@ export class EngineRegistry {
     logger?: LoggerLike,
   ): EngineRegistry {
     const domesticAdapters: EngineAdapter[] = [
-      new DoubaoAdapter(config.domestic.doubao, httpClient),
+      new DoubaoAdapter(config.domestic.doubao, httpClient, logger),
       new DeepSeekAdapter(config.domestic.deepseek, httpClient),
       new TongyiAdapter(config.domestic.tongyi, httpClient),
       new ZhipuAdapter(config.domestic.zhipu, httpClient),
       new WenxinAdapter(config.domestic.wenxin, httpClient),
+      new YuanbaoAdapter(config.domestic.yuanbao, httpClient),
+      new KimiAdapter(config.domestic.kimi, httpClient),
     ];
 
     const dataforseoAdapters = createDataForSeoAdapters({
@@ -105,27 +121,36 @@ export class EngineRegistry {
       return dfsAdapter;
     });
 
+    const doubaoConcurrency =
+      config.domestic.doubao.concurrency ??
+      Math.min(DEFAULT_DOUBAO_GENTLE_CONCURRENCY, config.budget.domesticConcurrencyPerEngine);
+
     return new EngineRegistry({
       adapters: [...domesticAdapters, ...overseasAdapters],
       domesticConcurrencyPerEngine: config.budget.domesticConcurrencyPerEngine,
       dataforseoConcurrency: config.budget.dataforseoConcurrency,
       semaphoreWaitMs: config.budget.semaphoreWaitMs,
+      perEngineConcurrency: {
+        doubao: doubaoConcurrency,
+      },
     });
   }
 
   resolve(engineName: string): ResolvedEngine {
-    const normalized = engineName.trim().toLowerCase();
-    if (!isSupportedEngine(normalized)) {
-      if (isPlannedEngine(normalized)) {
-        throw engineNotImplementedError(normalized);
+    const rawNormalized = engineName.trim().toLowerCase();
+    const canonical = resolveEngineAlias(rawNormalized);
+
+    if (!isSupportedEngine(canonical)) {
+      if (isPlannedEngine(canonical)) {
+        throw engineNotImplementedError(canonical);
       }
-      throw unsupportedEngineError(normalized.length > 0 ? normalized : engineName);
+      throw unsupportedEngineError(rawNormalized.length > 0 ? rawNormalized : engineName);
     }
 
-    const adapter = this.adapters.get(normalized);
-    const semaphore = this.semaphores.get(normalized);
+    const adapter = this.adapters.get(canonical);
+    const semaphore = this.semaphores.get(canonical);
     if (adapter === undefined || semaphore === undefined || !adapter.isConfigured()) {
-      throw engineNotConfiguredError(normalized);
+      throw engineNotConfiguredError(canonical);
     }
 
     return { adapter, semaphore };
@@ -143,6 +168,7 @@ export class EngineRegistry {
 
       const configured = adapter.isConfigured();
       const stats = semaphore.getStats();
+      const aliases = getAliasesForEngine(adapter.engine);
       statuses.push({
         engine: adapter.engine,
         region: adapter.region,
@@ -150,6 +176,7 @@ export class EngineRegistry {
         ...(adapter.model !== undefined ? { model: adapter.model } : {}),
         configured,
         status: configured ? 'ready' : 'unconfigured',
+        ...(aliases.length > 0 ? { aliases } : {}),
         concurrencyLimit: stats.maxConcurrency,
         activeRequests: stats.active,
         queuedRequests: stats.queued,
@@ -157,6 +184,29 @@ export class EngineRegistry {
     }
 
     return statuses;
+  }
+
+  /** Sanitized availability list safe for the unauthenticated `/ready` endpoint. */
+  getReadyEngineSummaries(): ReadyEngineSummary[] {
+    const summaries: ReadyEngineSummary[] = [];
+
+    for (const engine of SUPPORTED_ENGINES) {
+      const adapter = this.adapters.get(engine);
+      if (adapter === undefined) {
+        continue;
+      }
+      const configured = adapter.isConfigured();
+      const aliases = getAliasesForEngine(adapter.engine);
+      summaries.push({
+        engine: adapter.engine,
+        region: adapter.region,
+        configured,
+        status: configured ? 'ready' : 'unconfigured',
+        ...(aliases.length > 0 ? { aliases } : {}),
+      });
+    }
+
+    return summaries;
   }
 
   getPlannedStatuses(): PlannedEngineStatus[] {

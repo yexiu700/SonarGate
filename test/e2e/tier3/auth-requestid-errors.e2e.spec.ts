@@ -144,7 +144,7 @@ describe('Tier 3: Multi-Key Auth + X-Request-Id + Error Envelope Matrix', () => 
       expect(parsedOk.rawMeta?.['requestId']).toBe(okHeaderId);
 
       const errRes = await harness.collect(
-        { engine: 'yuanbao', prompt: `bad engine ${i}` },
+        { engine: 'nami', prompt: `bad engine ${i}` },
         { requestId: badId },
       );
       expect(errRes.statusCode).toBe(501);
@@ -214,8 +214,8 @@ describe('Tier 3: Multi-Key Auth + X-Request-Id + Error Envelope Matrix', () => 
       requestId: 'req-400-unknown',
     });
 
-    // 501 ENGINE_NOT_IMPLEMENTED: planned engines (yuanbao, nami, kimi)
-    for (const planned of ['yuanbao', 'nami', 'kimi'] as const) {
+    // 501 ENGINE_NOT_IMPLEMENTED: planned engines (nami)
+    for (const planned of ['nami'] as const) {
       const reqId = `req-501-${planned}`;
       const res = await harness.collect(
         { engine: planned, prompt: 'test prompt' },

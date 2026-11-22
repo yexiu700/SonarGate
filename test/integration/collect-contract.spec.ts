@@ -43,6 +43,8 @@ const ALL_CONFIGURED_ENV: Record<string, string> = {
   TONGYI_API_KEY: 'sk-tongyi-test',
   ZHIPU_API_KEY: 'sk-zhipu-test',
   WENXIN_API_KEY: 'sk-wenxin-test',
+  YUANBAO_API_KEY: 'sk-yuanbao-test',
+  KIMI_API_KEY: 'sk-kimi-test',
   DATAFORSEO_LOGIN: 'dfs-login-test',
   DATAFORSEO_PASSWORD: 'dfs-password-test',
 };
@@ -84,6 +86,18 @@ const ENGINE_MOCK_ROUTES: Record<
     origin: 'https://qianfan.baidubce.com',
     path: '/v2/chat/completions',
     fixture: 'wenxin.json',
+    expectedRegion: 'domestic',
+  },
+  yuanbao: {
+    origin: 'https://api.hunyuan.cloud.tencent.com',
+    path: '/v1/chat/completions',
+    fixture: 'yuanbao.json',
+    expectedRegion: 'domestic',
+  },
+  kimi: {
+    origin: 'https://api.moonshot.cn',
+    path: '/v1/chat/completions',
+    fixture: 'kimi.json',
     expectedRegion: 'domestic',
   },
   chatgpt: {
@@ -215,7 +229,7 @@ describe('POST /v1/collect integration contract', () => {
     expect(parsed.answerText.replace(/\s+/g, '').length).toBeLessThan(60);
   });
 
-  it.each(['yuanbao', 'nami', 'kimi'])(
+  it.each(['nami'])(
     'returns 501 ENGINE_NOT_IMPLEMENTED for planned engine "%s" with zero fallback',
     async (planned) => {
       const res = await app.inject({
@@ -241,6 +255,35 @@ describe('POST /v1/collect integration contract', () => {
       });
     },
   );
+
+  it('routes engine alias "qwen" to tongyi and reports requestedEngine in rawMeta', async () => {
+    const fixture = loadFixture('tongyi.json');
+    mockAgent
+      .get('https://dashscope.aliyuncs.com')
+      .intercept({ method: 'POST', path: '/compatible-mode/v1/chat/completions' })
+      .reply(200, fixture, {
+        headers: { 'content-type': 'application/json' },
+      });
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/collect',
+      headers: {
+        authorization: `Bearer ${API_KEY}`,
+        'content-type': 'application/json',
+      },
+      payload: {
+        engine: 'qwen',
+        prompt: '2026年中小企业CRM系统推荐',
+      },
+    });
+
+    expect(res.statusCode).toBe(200);
+    const parsed = collectResponseSchema.parse(res.json());
+    expect(parsed.rawMeta.engine).toBe('tongyi');
+    expect(parsed.rawMeta.requestedEngine).toBe('qwen');
+    expect(parsed.citations.length).toBeGreaterThan(0);
+  });
 
   it.each(['unknown_foo', 'nonexistent_engine'])(
     'returns 400 UNSUPPORTED_ENGINE for unknown engine "%s" with zero fallback',
@@ -317,7 +360,7 @@ describe('POST /v1/collect integration contract', () => {
         'x-request-id': 'bad id with spaces / <script>',
       },
       payload: {
-        engine: 'yuanbao',
+        engine: 'nami',
         prompt: 'hello',
       },
     });
@@ -329,13 +372,14 @@ describe('POST /v1/collect integration contract', () => {
     expect(resInvalid.json().error.requestId).toBe(echoed);
   });
 
-  it('GET /v1/engines exposes lifecycle status (ready/unconfigured/planned) for all engines', async () => {
+  it('GET /v1/engines exposes lifecycle status (ready/unconfigured/planned) and aliases for all engines', async () => {
     const partialApp = buildApp({
       config: loadConfig({
         NODE_ENV: 'test',
         LOG_LEVEL: 'silent',
         GATEWAY_API_KEYS: API_KEY,
         DEEPSEEK_API_KEY: 'sk-deepseek-only',
+        YUANBAO_API_KEY: 'sk-yuanbao-only',
       }),
       logger: false,
     });
@@ -351,23 +395,30 @@ describe('POST /v1/collect integration contract', () => {
 
       expect(res.statusCode).toBe(200);
       const body = res.json() as {
-        engines: Array<{ engine: string; configured: boolean; status: string }>;
+        engines: Array<{ engine: string; configured: boolean; status: string; aliases?: string[] }>;
         plannedEngines: Array<{
           engine: string;
           region: string;
           configured: boolean;
           status: string;
         }>;
+        aliases: Record<string, string>;
       };
 
       const byEngine = new Map(body.engines.map((entry) => [entry.engine, entry]));
       expect(byEngine.get('deepseek')).toMatchObject({ configured: true, status: 'ready' });
+      expect(byEngine.get('yuanbao')).toMatchObject({ configured: true, status: 'ready' });
+      expect(byEngine.get('kimi')).toMatchObject({ configured: false, status: 'unconfigured' });
+      expect(byEngine.get('tongyi')).toMatchObject({
+        configured: false,
+        status: 'unconfigured',
+        aliases: ['qwen'],
+      });
       expect(byEngine.get('doubao')).toMatchObject({ configured: false, status: 'unconfigured' });
       expect(body.plannedEngines).toEqual([
-        { engine: 'yuanbao', region: 'domestic', configured: false, status: 'planned' },
         { engine: 'nami', region: 'domestic', configured: false, status: 'planned' },
-        { engine: 'kimi', region: 'domestic', configured: false, status: 'planned' },
       ]);
+      expect(body.aliases).toEqual({ qwen: 'tongyi' });
     } finally {
       await partialApp.close();
     }
@@ -452,23 +503,28 @@ describe('POST /v1/collect integration contract', () => {
     expect(upstreamCalls).toBe(3);
   });
 
-  it('transitions GET /ready from 200 to 503 after markShuttingDown()', async () => {
+  it('transitions GET /ready from 200 to 503 after markShuttingDown() and exposes engine availability list', async () => {
     const before = await app.inject({ method: 'GET', url: '/ready' });
     expect(before.statusCode).toBe(200);
-    expect(before.json()).toEqual({
+    expect(before.json()).toMatchObject({
       ready: true,
-      configuredCount: 10,
-      totalSupported: 10,
+      configuredCount: 12,
+      totalSupported: 12,
+      plannedEngines: [
+        { engine: 'nami', region: 'domestic', configured: false, status: 'planned' },
+      ],
+      aliases: { qwen: 'tongyi' },
     });
+    expect((before.json() as { engines: unknown[] }).engines).toHaveLength(12);
 
     app.markShuttingDown();
 
     const after = await app.inject({ method: 'GET', url: '/ready' });
     expect(after.statusCode).toBe(503);
-    expect(after.json()).toEqual({
+    expect(after.json()).toMatchObject({
       ready: false,
-      configuredCount: 10,
-      totalSupported: 10,
+      configuredCount: 12,
+      totalSupported: 12,
     });
   });
 

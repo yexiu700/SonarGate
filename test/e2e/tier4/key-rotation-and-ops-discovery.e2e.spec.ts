@@ -62,8 +62,8 @@ describe('Tier 4 Scenario 4: Zero-Downtime Key Rotation & Ops Discovery Workflow
     expect(readyRes.statusCode).toBe(200);
     const readyJson = readyRes.json() as Record<string, unknown>;
     expect(readyJson['ready']).toBe(true);
-    expect(readyJson['configuredCount']).toBe(10);
-    expect(readyJson['totalSupported']).toBe(10);
+    expect(readyJson['configuredCount']).toBe(12);
+    expect(readyJson['totalSupported']).toBe(12);
 
     // 3. GET /v1/engines works with both oldKey and newKey and leaks zero secrets
     const enginesOldRes = await harness.getEngines({ apiKey: oldKey, requestId: 'ops-eng-old' });
@@ -81,17 +81,20 @@ describe('Tier 4 Scenario 4: Zero-Downtime Key Rotation & Ops Discovery Workflow
       DEFAULT_E2E_ENV['TONGYI_API_KEY']!,
       DEFAULT_E2E_ENV['ZHIPU_API_KEY']!,
       DEFAULT_E2E_ENV['WENXIN_API_KEY']!,
+      DEFAULT_E2E_ENV['YUANBAO_API_KEY']!,
+      DEFAULT_E2E_ENV['KIMI_API_KEY']!,
       DEFAULT_E2E_ENV['DATAFORSEO_LOGIN']!,
       DEFAULT_E2E_ENV['DATAFORSEO_PASSWORD']!,
     ];
 
     for (const secret of secretValues) {
+      expect(readyRes.body).not.toContain(secret);
       expect(enginesNewRes.body).not.toContain(secret);
       expect(enginesOldRes.body).not.toContain(secret);
     }
 
     const enginesList = extractEnginesList(enginesNewRes.json());
-    expect(enginesList).toHaveLength(10);
+    expect(enginesList).toHaveLength(12);
     const listedNames = enginesList.map((e) => e.engine).sort();
     expect(listedNames).toEqual([...SUPPORTED_ENGINES].sort());
     for (const entry of enginesList) {

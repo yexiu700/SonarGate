@@ -74,6 +74,8 @@ describe('Tier 4 Scenario 5: Graceful Shutdown Readiness Flip (/ready -> 503) & 
       TONGYI_API_KEY: '',
       ZHIPU_API_KEY: '',
       WENXIN_API_KEY: '',
+      YUANBAO_API_KEY: '',
+      KIMI_API_KEY: '',
       DATAFORSEO_LOGIN: '',
       DATAFORSEO_PASSWORD: '',
     });
@@ -83,7 +85,7 @@ describe('Tier 4 Scenario 5: Graceful Shutdown Readiness Flip (/ready -> 503) & 
     const readyJson = readyRes.json() as Record<string, unknown>;
     expect(readyJson['ready']).toBe(false);
     expect(readyJson['configuredCount']).toBe(0);
-    expect(readyJson['totalSupported']).toBe(10);
+    expect(readyJson['totalSupported']).toBe(12);
 
     // /health still reports liveness
     const healthRes = await harness.getHealth();

@@ -1,5 +1,10 @@
 import type { AdapterResult, RawCitation } from '../../core/types.js';
-import { asNonEmptyString, isRecord } from '../shared/parsing.js';
+import {
+  asNonEmptyString,
+  dedupeQueryStrings,
+  extractStringQueries,
+  isRecord,
+} from '../shared/parsing.js';
 
 export const NO_AI_OVERVIEW_TEXT = '[NO_AI_OVERVIEW] 该查询未触发 Google AI Overview。';
 
@@ -9,8 +14,15 @@ export interface DataForSeoParseMeta {
   fallbackModel?: string | undefined;
 }
 
-const DEFAULT_SNIPPET_KEYS = ['snippet', 'description', 'text', 'content'] as const;
-const AIO_SNIPPET_KEYS = ['text', 'snippet', 'description'] as const;
+const DEFAULT_SNIPPET_KEYS = [
+  'snippet',
+  'description',
+  'text',
+  'content',
+  'cited_text',
+  'summary',
+] as const;
+const AIO_SNIPPET_KEYS = ['text', 'snippet', 'description', 'content'] as const;
 
 function asNonNegativeInt(value: unknown): number | undefined {
   if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) {
@@ -20,43 +32,85 @@ function asNonNegativeInt(value: unknown): number | undefined {
 }
 
 function firstStringField(
-  obj: Record<string, unknown>,
+  records: readonly Record<string, unknown>[],
   keys: readonly string[],
 ): string | undefined {
-  for (const key of keys) {
-    const val = asNonEmptyString(obj[key]);
-    if (val !== undefined) {
-      return val;
+  for (const obj of records) {
+    for (const key of keys) {
+      const val = asNonEmptyString(obj[key]);
+      if (val !== undefined) {
+        return val;
+      }
     }
   }
   return undefined;
+}
+
+function unwrapCitationRecords(entry: Record<string, unknown>): Record<string, unknown>[] {
+  const records: Record<string, unknown>[] = [];
+  for (const key of ['url_citation', 'web', 'source'] as const) {
+    const nested = entry[key];
+    if (isRecord(nested)) {
+      records.push(nested);
+    }
+  }
+  records.push(entry);
+  return records;
 }
 
 function extractCitations(
   lists: readonly unknown[],
   snippetKeys: readonly string[] = DEFAULT_SNIPPET_KEYS,
 ): RawCitation[] {
-  const seen = new Set<string>();
+  const byUrl = new Map<string, RawCitation>();
   const citations: RawCitation[] = [];
+
+  const upsert = (incoming: RawCitation): void => {
+    const existing = byUrl.get(incoming.url);
+    if (existing !== undefined) {
+      if (existing.title === undefined && incoming.title !== undefined) {
+        existing.title = incoming.title;
+      }
+      if (existing.snippet === undefined && incoming.snippet !== undefined) {
+        existing.snippet = incoming.snippet;
+      }
+      return;
+    }
+    byUrl.set(incoming.url, incoming);
+    citations.push(incoming);
+  };
 
   for (const list of lists) {
     if (!Array.isArray(list)) {
       continue;
     }
     for (const entry of list) {
+      if (typeof entry === 'string') {
+        const url = asNonEmptyString(entry);
+        if (url !== undefined) {
+          upsert({ url });
+        }
+        continue;
+      }
       if (!isRecord(entry)) {
         continue;
       }
-      const url = firstStringField(entry, ['url', 'link', 'href', 'source_url']);
-      if (url === undefined || seen.has(url)) {
+      const records = unwrapCitationRecords(entry);
+      const url = firstStringField(records, ['url', 'uri', 'link', 'href', 'source_url']);
+      if (url === undefined) {
         continue;
       }
-      seen.add(url);
 
-      const title = firstStringField(entry, ['title', 'name', 'source_name', 'domain']);
-      const snippet = firstStringField(entry, snippetKeys);
+      const title = firstStringField(records, [
+        'title',
+        'name',
+        'source_name',
+        'site_name',
+        'domain',
+      ]);
+      const snippet = firstStringField(records, snippetKeys);
 
-      citations.push({
+      upsert({
         url,
         ...(title !== undefined ? { title } : {}),
         ...(snippet !== undefined ? { snippet } : {}),
@@ -111,19 +165,32 @@ function collectAnnotationsFromItems(items: unknown): unknown[] {
     if (!isRecord(item)) {
       continue;
     }
-    if (Array.isArray(item['annotations'])) {
-      collected.push(...item['annotations']);
-    }
-    if (Array.isArray(item['sources'])) {
-      collected.push(...item['sources']);
+    for (const field of [
+      'annotations',
+      'sources',
+      'search_results',
+      'citations',
+      'references',
+    ] as const) {
+      if (Array.isArray(item[field])) {
+        collected.push(...item[field]);
+      }
     }
     if (Array.isArray(item['sections'])) {
       for (const section of item['sections']) {
         if (!isRecord(section)) {
           continue;
         }
-        if (Array.isArray(section['annotations'])) {
-          collected.push(...section['annotations']);
+        for (const field of [
+          'annotations',
+          'sources',
+          'citations',
+          'references',
+          'search_results',
+        ] as const) {
+          if (Array.isArray(section[field])) {
+            collected.push(...section[field]);
+          }
         }
       }
     }
@@ -131,24 +198,106 @@ function collectAnnotationsFromItems(items: unknown): unknown[] {
   return collected;
 }
 
-function extractFanOutQueries(...lists: readonly unknown[]): string[] {
-  const seen = new Set<string>();
-  const queries: string[] = [];
+function collectQueriesFromItems(items: unknown): string[] {
+  if (!Array.isArray(items)) {
+    return [];
+  }
 
-  for (const list of lists) {
-    if (!Array.isArray(list)) {
+  const collected: string[] = [];
+  for (const item of items) {
+    if (!isRecord(item)) {
       continue;
     }
-    for (const entry of list) {
-      const query = asNonEmptyString(entry);
-      if (query !== undefined && !seen.has(query)) {
-        seen.add(query);
-        queries.push(query);
+    for (const field of [
+      'fan_out_queries',
+      'search_queries',
+      'web_search_queries',
+      'queries',
+      'query',
+    ] as const) {
+      collected.push(...extractStringQueries(item[field]));
+    }
+    if (isRecord(item['action'])) {
+      collected.push(
+        ...extractStringQueries(item['action']['query']),
+        ...extractStringQueries(item['action']['queries']),
+      );
+    }
+    if (Array.isArray(item['sections'])) {
+      for (const section of item['sections']) {
+        if (!isRecord(section)) {
+          continue;
+        }
+        collected.push(
+          ...extractStringQueries(section['search_queries']),
+          ...extractStringQueries(section['web_search_queries']),
+          ...extractStringQueries(section['fan_out_queries']),
+        );
       }
     }
   }
 
-  return queries;
+  return collected;
+}
+
+function extractGroundingMetadataFromResult(result: Record<string, unknown>): {
+  citations: unknown[];
+  queries: string[];
+} {
+  const grounding = isRecord(result['grounding_metadata'])
+    ? result['grounding_metadata']
+    : isRecord(result['groundingMetadata'])
+      ? result['groundingMetadata']
+      : undefined;
+
+  if (grounding === undefined) {
+    return { citations: [], queries: [] };
+  }
+
+  const citations: unknown[] = [];
+  for (const field of ['grounding_chunks', 'groundingChunks'] as const) {
+    if (Array.isArray(grounding[field])) {
+      citations.push(...grounding[field]);
+    }
+  }
+
+  const queries = [
+    ...extractStringQueries(grounding['web_search_queries']),
+    ...extractStringQueries(grounding['webSearchQueries']),
+    ...extractStringQueries(grounding['search_queries']),
+    ...extractStringQueries(grounding['searchQueries']),
+  ];
+
+  return { citations, queries };
+}
+
+function extractFanOutQueries(...lists: readonly unknown[]): string[] {
+  const raw: string[] = [];
+
+  for (const list of lists) {
+    if (typeof list === 'string') {
+      raw.push(list);
+      continue;
+    }
+    if (!Array.isArray(list)) {
+      continue;
+    }
+    for (const entry of list) {
+      if (typeof entry === 'string') {
+        raw.push(entry);
+      } else if (isRecord(entry)) {
+        const text =
+          asNonEmptyString(entry['query']) ??
+          asNonEmptyString(entry['keyword']) ??
+          asNonEmptyString(entry['title']);
+        if (text !== undefined) {
+          raw.push(text);
+        }
+      }
+    }
+  }
+
+  return dedupeQueryStrings(raw);
 }
 
 function buildRawMeta(
@@ -184,10 +333,18 @@ export function parseChatGptResult(
   const citations = extractCitations([
     result['sources'],
     result['search_results'],
+    result['citations'],
+    result['references'],
     itemAnnotations,
   ]);
 
-  const fanOutQueries = extractFanOutQueries(result['fan_out_queries'], result['search_queries']);
+  const fanOutQueries = extractFanOutQueries(
+    result['fan_out_queries'],
+    result['search_queries'],
+    result['web_search_queries'],
+    result['queries'],
+    collectQueriesFromItems(result['items']),
+  );
 
   const model = asNonEmptyString(result['model_name']);
 
@@ -208,13 +365,26 @@ export function parseLlmResponsesResult(
     itemsText.length > 0 ? itemsText : (asNonEmptyString(result['markdown']) ?? '');
 
   const itemAnnotations = collectAnnotationsFromItems(result['items']);
+  const grounding = extractGroundingMetadataFromResult(result);
   const citations = extractCitations([
     itemAnnotations,
     result['sources'],
     result['search_results'],
+    result['citations'],
+    result['references'],
+    result['annotations'],
+    grounding.citations,
   ]);
 
-  const fanOutQueries = extractFanOutQueries(result['fan_out_queries'], result['search_queries']);
+  const fanOutQueries = extractFanOutQueries(
+    result['fan_out_queries'],
+    result['search_queries'],
+    result['web_search_queries'],
+    result['related_questions'],
+    result['queries'],
+    grounding.queries,
+    collectQueriesFromItems(result['items']),
+  );
 
   const model = asNonEmptyString(result['model_name']);
   const tokensIn = asNonNegativeInt(result['input_tokens']);
@@ -249,13 +419,24 @@ export function parseGeminiResult(
   const answerText = asNonEmptyString(result['markdown']) ?? extractTextFromItems(result['items']);
 
   const itemAnnotations = collectAnnotationsFromItems(result['items']);
+  const grounding = extractGroundingMetadataFromResult(result);
   const citations = extractCitations([
     result['sources'],
     result['search_results'],
+    result['citations'],
+    result['references'],
     itemAnnotations,
+    grounding.citations,
   ]);
 
-  const fanOutQueries = extractFanOutQueries(result['fan_out_queries'], result['search_queries']);
+  const fanOutQueries = extractFanOutQueries(
+    result['fan_out_queries'],
+    result['search_queries'],
+    result['web_search_queries'],
+    result['queries'],
+    grounding.queries,
+    collectQueriesFromItems(result['items']),
+  );
 
   const model = asNonEmptyString(result['model_name']);
   const tokensIn = asNonNegativeInt(result['input_tokens']);
@@ -298,8 +479,10 @@ function collectAioTextParts(items: unknown, parts: string[]): void {
 }
 
 function collectAioReferenceLists(node: Record<string, unknown>, lists: unknown[]): void {
-  if (Array.isArray(node['references'])) {
-    lists.push(node['references']);
+  for (const field of ['references', 'sources', 'annotations', 'links'] as const) {
+    if (Array.isArray(node[field])) {
+      lists.push(node[field]);
+    }
   }
   if (Array.isArray(node['items'])) {
     for (const child of node['items']) {
@@ -308,6 +491,31 @@ function collectAioReferenceLists(node: Record<string, unknown>, lists: unknown[
       }
     }
   }
+}
+
+function collectSerpRelatedQueries(items: readonly unknown[]): string[] {
+  const collected: string[] = [];
+  for (const entry of items) {
+    if (!isRecord(entry)) {
+      continue;
+    }
+    const itemType = entry['type'];
+    if (itemType === 'related_searches' && Array.isArray(entry['items'])) {
+      collected.push(...extractStringQueries(entry['items']));
+    } else if (itemType === 'people_also_ask' && Array.isArray(entry['items'])) {
+      for (const paa of entry['items']) {
+        if (typeof paa === 'string') {
+          collected.push(paa);
+        } else if (isRecord(paa)) {
+          const title = asNonEmptyString(paa['title']) ?? asNonEmptyString(paa['question']);
+          if (title !== undefined) {
+            collected.push(title);
+          }
+        }
+      }
+    }
+  }
+  return collected;
 }
 
 export function parseGoogleAioResult(
@@ -345,10 +553,20 @@ export function parseGoogleAioResult(
   collectAioReferenceLists(aioItem, referenceLists);
   const citations = extractCitations(referenceLists, AIO_SNIPPET_KEYS);
 
+  const fanOutQueries = extractFanOutQueries(
+    aioItem['fan_out_queries'],
+    aioItem['search_queries'],
+    aioItem['web_search_queries'],
+    result['fan_out_queries'],
+    result['search_queries'],
+    result['web_search_queries'],
+    collectSerpRelatedQueries(items),
+  );
+
   return {
     answerText,
     citations,
-    fanOutQueries: [],
+    fanOutQueries,
     rawMeta: buildRawMeta(meta, { aiOverviewTriggered: true }),
   };
 }

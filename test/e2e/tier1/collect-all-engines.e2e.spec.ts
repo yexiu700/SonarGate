@@ -13,7 +13,7 @@ import {
   buildGoogleAioPayload,
 } from '../helpers/mock-upstreams.js';
 
-describe('Tier 1 — POST /v1/collect across all 10 engines', () => {
+describe('Tier 1 — POST /v1/collect across all 12 engines', () => {
   let harness: E2EHarness | undefined;
 
   afterEach(async () => {

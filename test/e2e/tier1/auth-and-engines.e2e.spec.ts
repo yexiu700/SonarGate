@@ -177,6 +177,8 @@ describe('Tier 1 — Auth, Key Rotation & GET /v1/engines', () => {
       DEFAULT_E2E_ENV['TONGYI_API_KEY'],
       DEFAULT_E2E_ENV['ZHIPU_API_KEY'],
       DEFAULT_E2E_ENV['WENXIN_API_KEY'],
+      DEFAULT_E2E_ENV['YUANBAO_API_KEY'],
+      DEFAULT_E2E_ENV['KIMI_API_KEY'],
       DEFAULT_E2E_ENV['DATAFORSEO_LOGIN'],
       DEFAULT_E2E_ENV['DATAFORSEO_PASSWORD'],
     ].filter((v): v is string => typeof v === 'string' && v.length > 0);

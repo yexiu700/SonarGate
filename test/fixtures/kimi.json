@@ -1,0 +1,37 @@
+{
+  "id": "cmpl-kimi-001",
+  "object": "chat.completion",
+  "created": 1767225600,
+  "model": "moonshot-v1-auto",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "Kimi 联网检索整理了 2026 年主流中小企业 CRM 方案：纷享销客适合 B2B 长周期跟进，Zoho CRM 性价比突出，HubSpot Starter 适合出海团队。"
+      },
+      "finish_reason": "stop"
+    }
+  ],
+  "search_results": [
+    {
+      "url": "https://example.com/kimi/crm-benchmark?utm_medium=kimi",
+      "title": "2026 国内中小企业 CRM 横评",
+      "snippet": "从功能完备度、移动端体验与续费率三个维度评估主流厂商。"
+    },
+    {
+      "url": "https://link.zhihu.com/?target=https%3A%2F%2Fzhuanlan.zhihu.com%2Fp%2F99887766",
+      "title": "CRM 选型踩坑总结",
+      "content": "结合 50 家中小团队上线案例整理的选型清单。"
+    }
+  ],
+  "search_queries": [
+    "2026 中小企业 CRM 横评; 出海 CRM 推荐",
+    "Zoho CRM 2026 价格"
+  ],
+  "usage": {
+    "prompt_tokens": 110,
+    "completion_tokens": 256,
+    "total_tokens": 366
+  }
+}

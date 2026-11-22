@@ -18,7 +18,22 @@ export const MAX_FAN_OUT_QUERY_LENGTH = 300;
 export const MAX_RESPONSE_BYTES = 1_900_000;
 const MAX_RAW_META_STRING_LENGTH = 256;
 
-const TRACKING_PARAMS = new Set(['fbclid', 'gclid', 'msclkid', 'spm', 'vd_source', 'from_source']);
+const TRACKING_PARAMS = new Set([
+  'fbclid',
+  'gclid',
+  'msclkid',
+  'spm',
+  'vd_source',
+  'from_source',
+  'srsltid',
+  'mc_cid',
+  'mc_eid',
+  'yclid',
+  '_hsenc',
+  '_hsmi',
+  'igshid',
+  'ref_src',
+]);
 
 const CORE_RAW_META_KEYS = new Set([
   'engine',
@@ -36,12 +51,36 @@ const CORE_RAW_META_KEYS = new Set([
   'citationsExtractedFromText',
   'truncatedForByteLimit',
   'upstreamRequestId',
+  'market',
+  'locale',
+  'countryCode',
+  'requestedEngine',
 ]);
+
+const GOOGLE_HOST_RE = /^(?:www\.)?google\.[a-z.]+$/i;
+const BING_HOST_RE = /^(?:www\.)?bing\.com$/i;
+const MAX_REDIRECT_UNWRAP_DEPTH = 3;
+
+const KNOWN_REDIRECT_HOST_PARAMS: Readonly<Record<string, readonly string[]>> = {
+  'link.zhihu.com': ['target'],
+  'link.juejin.cn': ['target'],
+  'link.csdn.net': ['target'],
+  'link.jianshu.com': ['t'],
+  'l.facebook.com': ['u'],
+  'lm.facebook.com': ['u'],
+  'out.reddit.com': ['url'],
+  'duckduckgo.com': ['uddg'],
+  't.umblr.com': ['z'],
+  'c.pc.qq.com': ['url', 'pfurl'],
+  'weixin110.qq.com': ['url'],
+  'weibo.cn': ['u', 'toasturl'],
+};
 
 const MARKDOWN_LINK_START_RE = /\[([^\]]*)\]\((https?:\/\/)/gi;
 const BARE_URL_RE =
   /https?:\/\/[^\s<>"'`\u2018\u2019\u201c\u201d\u3000\u4e00-\u9fff\u3001-\u303f\uff01-\uff5e]+/gi;
 const TRAILING_PUNCT_RE = /[.,;:!?'"\u2018\u2019\u201c\u201d\]}>]+$/;
+const FAN_OUT_SPLIT_RE = /[;；\r\n]+/;
 
 export interface NormalizeMeta {
   engine: string;
@@ -99,20 +138,108 @@ export function stripControlChars(text: string): string {
   return out;
 }
 
-export function normalizeUrl(rawUrl: string): string | null {
-  const trimmed = rawUrl.trim();
+function tryParseHttpUrl(candidate: string): URL | null {
+  const trimmed = candidate.trim();
   if (trimmed.length === 0) {
     return null;
   }
-  let parsed: URL;
   try {
-    parsed = new URL(trimmed);
+    const parsed = new URL(trimmed);
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+      return null;
+    }
+    return parsed;
   } catch {
     return null;
   }
+}
 
-  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+function decodeBingClickTarget(rawParam: string): URL | null {
+  const trimmed = rawParam.trim();
+  if (!trimmed.startsWith('a1') || trimmed.length <= 2) {
     return null;
+  }
+  try {
+    const decoded = Buffer.from(trimmed.slice(2), 'base64url').toString('utf8');
+    return tryParseHttpUrl(decoded);
+  } catch {
+    return null;
+  }
+}
+
+function unwrapSingleRedirectHop(parsed: URL): URL | null {
+  const host = parsed.hostname.toLowerCase();
+  const pathname = parsed.pathname;
+
+  // Google Search / AIO redirect: https://www.google.*/url?q=... or ?url=...
+  if (GOOGLE_HOST_RE.test(host)) {
+    if (pathname === '/url') {
+      const target = parsed.searchParams.get('q') ?? parsed.searchParams.get('url');
+      return target !== null ? tryParseHttpUrl(target) : null;
+    }
+    if (pathname.startsWith('/amp/s/') && pathname.length > '/amp/s/'.length) {
+      return tryParseHttpUrl(
+        `https://${pathname.slice('/amp/s/'.length)}${parsed.search}${parsed.hash}`,
+      );
+    }
+    if (pathname.startsWith('/amp/') && pathname.length > '/amp/'.length) {
+      return tryParseHttpUrl(
+        `http://${pathname.slice('/amp/'.length)}${parsed.search}${parsed.hash}`,
+      );
+    }
+  }
+
+  // Bing click redirect: https://www.bing.com/ck/a?...&u=a1<base64url>
+  if (BING_HOST_RE.test(host) && pathname.startsWith('/ck/a')) {
+    const encoded = parsed.searchParams.get('u');
+    return encoded !== null ? decodeBingClickTarget(encoded) : null;
+  }
+
+  // YouTube outbound redirect: https://www.youtube.com/redirect?q=...
+  if ((host === 'www.youtube.com' || host === 'youtube.com') && pathname === '/redirect') {
+    const target = parsed.searchParams.get('q');
+    return target !== null ? tryParseHttpUrl(target) : null;
+  }
+
+  // Known redirector hosts (Zhihu, Juejin, CSDN, Jianshu, Facebook, Reddit, DuckDuckGo, QQ, Weibo, Tumblr)
+  const paramNames = KNOWN_REDIRECT_HOST_PARAMS[host];
+  if (paramNames !== undefined) {
+    if ((host === 'l.facebook.com' || host === 'lm.facebook.com') && pathname !== '/l.php') {
+      return null;
+    }
+    if (host === 'duckduckgo.com' && pathname !== '/l' && pathname !== '/l/') {
+      return null;
+    }
+    if (host === 'weibo.cn' && pathname !== '/sinaurl') {
+      return null;
+    }
+    for (const paramName of paramNames) {
+      const target = parsed.searchParams.get(paramName);
+      if (target !== null) {
+        const unwrapped = tryParseHttpUrl(target);
+        if (unwrapped !== null) {
+          return unwrapped;
+        }
+      }
+    }
+  }
+
+  return null;
+}
+
+export function normalizeUrl(rawUrl: string): string | null {
+  const initial = tryParseHttpUrl(rawUrl);
+  if (initial === null) {
+    return null;
+  }
+
+  let parsed = initial;
+  for (let hop = 0; hop < MAX_REDIRECT_UNWRAP_DEPTH; hop += 1) {
+    const unwrapped = unwrapSingleRedirectHop(parsed);
+    if (unwrapped === null || unwrapped.toString() === parsed.toString()) {
+      break;
+    }
+    parsed = unwrapped;
   }
 
   const keysToDelete: string[] = [];
@@ -234,21 +361,17 @@ export function extractCitationsFromText(text: string): RawCitation[] {
 }
 
 export function normalizeCitations(rawCitations: RawCitation[]): NormalizedCitation[] {
-  const seen = new Set<string>();
+  const byUrl = new Map<string, NormalizedCitation>();
   const normalized: NormalizedCitation[] = [];
 
   for (const raw of rawCitations) {
-    if (normalized.length >= MAX_CITATIONS) {
-      break;
-    }
     if (typeof raw.url !== 'string') {
       continue;
     }
     const url = normalizeUrl(raw.url);
-    if (url === null || seen.has(url)) {
+    if (url === null) {
       continue;
     }
-    seen.add(url);
 
     const cleanedTitle =
       typeof raw.title === 'string'
@@ -259,6 +382,21 @@ export function normalizeCitations(rawCitations: RawCitation[]): NormalizedCitat
         ? sliceSurrogateSafe(stripControlChars(raw.snippet).trim(), MAX_SNIPPET_LENGTH).trim()
         : '';
 
+    const existing = byUrl.get(url);
+    if (existing !== undefined) {
+      if (existing.title === undefined && cleanedTitle.length > 0) {
+        existing.title = cleanedTitle;
+      }
+      if (existing.snippet === undefined && cleanedSnippet.length > 0) {
+        existing.snippet = cleanedSnippet;
+      }
+      continue;
+    }
+
+    if (normalized.length >= MAX_CITATIONS) {
+      break;
+    }
+
     const entry: NormalizedCitation = {
       url,
       ...(cleanedTitle.length > 0 ? { title: cleanedTitle } : {}),
@@ -266,14 +404,39 @@ export function normalizeCitations(rawCitations: RawCitation[]): NormalizedCitat
       position: normalized.length + 1,
     };
 
+    byUrl.set(url, entry);
     normalized.push(entry);
   }
 
   return normalized;
 }
 
+/**
+ * Splits a single raw query string on ASCII/full-width semicolons and line breaks
+ * (`;`, `；`, `\r`, `\n`), strips control chars, collapses horizontal spaces,
+ * and drops empty segments so every returned entry is one clean standalone query.
+ */
+export function splitFanOutQueryString(raw: string): string[] {
+  const stripped = stripControlChars(raw);
+  if (stripped.length === 0) {
+    return [];
+  }
+
+  const segments: string[] = [];
+  for (const part of stripped.split(FAN_OUT_SPLIT_RE)) {
+    const cleaned = part.replace(/[ \t]+/g, ' ').trim();
+    if (cleaned.length > 0) {
+      segments.push(cleaned);
+    }
+  }
+  return segments;
+}
+
 export function normalizeFanOutQueries(rawQueries: string[], originalPrompt: string): string[] {
-  const promptLower = originalPrompt.trim().toLowerCase();
+  const promptLower = originalPrompt
+    .trim()
+    .replace(/[ \t]+/g, ' ')
+    .toLowerCase();
   const seen = new Set<string>();
   const result: string[] = [];
 
@@ -284,23 +447,24 @@ export function normalizeFanOutQueries(rawQueries: string[], originalPrompt: str
     if (typeof raw !== 'string') {
       continue;
     }
-    const stripped = stripControlChars(raw).trim();
-    if (stripped.length === 0) {
-      continue;
+    for (const part of splitFanOutQueryString(raw)) {
+      if (result.length >= MAX_FAN_OUT_QUERIES) {
+        break;
+      }
+      if (part.toLowerCase() === promptLower) {
+        continue;
+      }
+      const cleaned = sliceSurrogateSafe(part, MAX_FAN_OUT_QUERY_LENGTH).trim();
+      if (cleaned.length === 0) {
+        continue;
+      }
+      const lower = cleaned.toLowerCase();
+      if (lower === promptLower || seen.has(lower)) {
+        continue;
+      }
+      seen.add(lower);
+      result.push(cleaned);
     }
-    if (stripped.toLowerCase() === promptLower) {
-      continue;
-    }
-    const cleaned = sliceSurrogateSafe(stripped, MAX_FAN_OUT_QUERY_LENGTH).trim();
-    if (cleaned.length === 0) {
-      continue;
-    }
-    const lower = cleaned.toLowerCase();
-    if (lower === promptLower || seen.has(lower)) {
-      continue;
-    }
-    seen.add(lower);
-    result.push(cleaned);
   }
 
   return result;

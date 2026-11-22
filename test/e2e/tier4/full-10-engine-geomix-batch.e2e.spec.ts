@@ -15,13 +15,15 @@ import {
   buildDoubaoPayload,
   buildGeminiScraperPayload,
   buildGoogleAioPayload,
+  buildKimiPayload,
   buildPerplexityPayload,
   buildTongyiPayload,
   buildWenxinPayload,
+  buildYuanbaoPayload,
   buildZhipuPayload,
 } from '../helpers/mock-upstreams.js';
 
-describe('Tier 4 Scenario 1: Full 10-Engine GeoMix Brand Visibility Sweep', () => {
+describe('Tier 4 Scenario 1: Full 12-Engine GeoMix Brand Visibility Sweep', () => {
   let harness: E2EHarness | undefined;
 
   afterEach(async () => {
@@ -31,7 +33,7 @@ describe('Tier 4 Scenario 1: Full 10-Engine GeoMix Brand Visibility Sweep', () =
     }
   });
 
-  it('dispatches a concurrent 10-engine GeoMix batch and validates 100% schema, telemetry, cost, and reasoning isolation', async () => {
+  it('dispatches a concurrent 12-engine GeoMix batch and validates 100% schema, telemetry, cost, and reasoning isolation', async () => {
     harness = createE2EHarness();
 
     const secretReasoningText = 'INTERNAL_CHAIN_OF_THOUGHT_MUST_NOT_LEAK_INTO_ANSWER';
@@ -67,6 +69,18 @@ describe('Tier 4 Scenario 1: Full 10-Engine GeoMix Brand Visibility Sweep', () =
     harness.upstreams.mockEngineSuccess(
       'wenxin',
       buildWenxinPayload({ tokensIn: 70, tokensOut: 165, upstreamRequestId: 'req-wenxin-batch' }),
+    );
+    harness.upstreams.mockEngineSuccess(
+      'yuanbao',
+      buildYuanbaoPayload({
+        tokensIn: 85,
+        tokensOut: 175,
+        upstreamRequestId: 'req-yuanbao-batch',
+      }),
+    );
+    harness.upstreams.mockEngineSuccess(
+      'kimi',
+      buildKimiPayload({ tokensIn: 110, tokensOut: 230, upstreamRequestId: 'req-kimi-batch' }),
     );
     harness.upstreams.mockEngineSuccess(
       'chatgpt',
@@ -108,8 +122,8 @@ describe('Tier 4 Scenario 1: Full 10-Engine GeoMix Brand Visibility Sweep', () =
       }),
     );
 
-    expect(batchResults).toHaveLength(10);
-    expect(harness.upstreams.getTotalHits()).toBe(10);
+    expect(batchResults).toHaveLength(12);
+    expect(harness.upstreams.getTotalHits()).toBe(12);
 
     for (const { engine, isDomestic, requestId, res } of batchResults) {
       expect(res.statusCode).toBe(200);

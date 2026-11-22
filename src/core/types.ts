@@ -1,4 +1,4 @@
-import type { PlannedEngine, SupportedEngine } from './contract.js';
+import type { Market, PlannedEngine, SupportedEngine } from './contract.js';
 
 export type EngineRegion = 'domestic' | 'overseas';
 export type EngineLifecycleStatus = 'ready' | 'unconfigured' | 'planned';
@@ -16,6 +16,10 @@ export interface CollectContext {
   requestId: string;
   locationCode: number;
   languageCode: string;
+  market?: Market | undefined;
+  locale?: string | undefined;
+  /** Normalized ISO-3166-1 alpha-2 country/region code (e.g. CN, US, GB, DE, JP). */
+  region?: string | undefined;
   signal: AbortSignal;
   timeoutMs: number;
 }
@@ -53,9 +57,18 @@ export interface EngineStatus {
   model?: string | undefined;
   configured: boolean;
   status: Exclude<EngineLifecycleStatus, 'planned'>;
+  aliases?: readonly string[] | undefined;
   concurrencyLimit: number;
   activeRequests: number;
   queuedRequests: number;
+}
+
+export interface ReadyEngineSummary {
+  engine: SupportedEngine;
+  region: EngineRegion;
+  configured: boolean;
+  status: Exclude<EngineLifecycleStatus, 'planned'>;
+  aliases?: readonly string[] | undefined;
 }
 
 export interface PlannedEngineStatus {

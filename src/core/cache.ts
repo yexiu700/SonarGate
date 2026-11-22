@@ -4,15 +4,27 @@ import type { CollectResponse } from './contract.js';
 
 export const NO_AIO_MAX_TTL_SECONDS = 300;
 
+export interface CacheKeyGeoOptions {
+  market?: string | undefined;
+  locale?: string | undefined;
+  region?: string | undefined;
+}
+
 export function buildCacheKey(
   engine: string,
   prompt: string,
   locationCode: number,
   languageCode: string,
+  geo?: CacheKeyGeoOptions,
 ): string {
-  return createHash('sha256')
-    .update(`${engine}\0${prompt.trim()}\0${locationCode}\0${languageCode}`)
-    .digest('hex');
+  const hasGeo =
+    geo !== undefined &&
+    (geo.market !== undefined || geo.locale !== undefined || geo.region !== undefined);
+  const rawKey = hasGeo
+    ? `${engine}\0${prompt.trim()}\0${locationCode}\0${languageCode}\0${geo.market ?? ''}\0${geo.locale ?? ''}\0${geo.region ?? ''}`
+    : `${engine}\0${prompt.trim()}\0${locationCode}\0${languageCode}`;
+
+  return createHash('sha256').update(rawKey).digest('hex');
 }
 
 export function computeResponseTtlMs(response: CollectResponse, defaultTtlSeconds: number): number {

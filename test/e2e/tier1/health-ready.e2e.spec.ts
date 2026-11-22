@@ -9,6 +9,8 @@ const UNCONFIGURED_ALL_ENV: Record<string, string> = {
   TONGYI_API_KEY: '',
   ZHIPU_API_KEY: '',
   WENXIN_API_KEY: '',
+  YUANBAO_API_KEY: '',
+  KIMI_API_KEY: '',
   DATAFORSEO_LOGIN: '',
   DATAFORSEO_PASSWORD: '',
 };
@@ -38,7 +40,7 @@ describe('Tier 1 — Health & Readiness endpoints', () => {
     expect(body['uptimeSec'] as number).toBeGreaterThanOrEqual(0);
   });
 
-  it('GET /ready returns 200 without authentication when all 10 engines are configured', async () => {
+  it('GET /ready returns 200 without authentication when all 12 engines are configured', async () => {
     harness = createE2EHarness();
 
     const res = await harness.getReady();
@@ -46,8 +48,11 @@ describe('Tier 1 — Health & Readiness endpoints', () => {
     expect(res.statusCode).toBe(200);
     const body = res.json() as Record<string, unknown>;
     expect(body['ready']).toBe(true);
-    expect(body['configuredCount']).toBe(10);
-    expect(body['totalSupported']).toBe(10);
+    expect(body['configuredCount']).toBe(12);
+    expect(body['totalSupported']).toBe(12);
+    expect(Array.isArray(body['engines'])).toBe(true);
+    expect((body['engines'] as unknown[]).length).toBe(12);
+    expect(body['aliases']).toEqual({ qwen: 'tongyi' });
   });
 
   it('GET /ready returns 200 when at least one engine is configured', async () => {
@@ -62,7 +67,7 @@ describe('Tier 1 — Health & Readiness endpoints', () => {
     const body = res.json() as Record<string, unknown>;
     expect(body['ready']).toBe(true);
     expect(body['configuredCount']).toBe(1);
-    expect(body['totalSupported']).toBe(10);
+    expect(body['totalSupported']).toBe(12);
   });
 
   it('GET /ready returns 503 when zero engines are configured', async () => {
@@ -74,7 +79,7 @@ describe('Tier 1 — Health & Readiness endpoints', () => {
     const body = res.json() as Record<string, unknown>;
     expect(body['ready']).toBe(false);
     expect(body['configuredCount']).toBe(0);
-    expect(body['totalSupported']).toBe(10);
+    expect(body['totalSupported']).toBe(12);
   });
 
   it('GET /ready flips to 503 after markShuttingDown() is invoked', async () => {
@@ -89,6 +94,6 @@ describe('Tier 1 — Health & Readiness endpoints', () => {
     expect(after.statusCode).toBe(503);
     const body = after.json() as Record<string, unknown>;
     expect(body['ready']).toBe(false);
-    expect(body['totalSupported']).toBe(10);
+    expect(body['totalSupported']).toBe(12);
   });
 });

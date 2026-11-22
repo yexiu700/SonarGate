@@ -62,14 +62,21 @@ export class TongyiAdapter implements EngineAdapter {
       provider: this.provider,
     });
 
-    const { message, usage, id, model } = extractChatCompletionParts(data);
+    const { choice, message, usage, id, model } = extractChatCompletionParts(data);
     const answerText = asString(message?.['content']) ?? '';
 
     const topSearchInfo = isRecord(data['search_info']) ? data['search_info'] : undefined;
+    const choiceSearchInfo = isRecord(choice?.['search_info']) ? choice['search_info'] : undefined;
     const msgSearchInfo = isRecord(message?.['search_info']) ? message['search_info'] : undefined;
 
     const citations = mergeCitations(
-      [topSearchInfo?.['search_results'], msgSearchInfo?.['search_results']],
+      [
+        topSearchInfo?.['search_results'],
+        choiceSearchInfo?.['search_results'],
+        msgSearchInfo?.['search_results'],
+        data['citations'],
+        message?.['annotations'],
+      ],
       {
         fallbackSnippetToSiteName: true,
       },
@@ -77,7 +84,10 @@ export class TongyiAdapter implements EngineAdapter {
 
     const fanOutQueries = dedupeQueryStrings([
       ...extractStringQueries(topSearchInfo?.['search_queries']),
+      ...extractStringQueries(choiceSearchInfo?.['search_queries']),
       ...extractStringQueries(msgSearchInfo?.['search_queries']),
+      ...extractStringQueries(data['search_queries']),
+      ...extractStringQueries(data['web_search_queries']),
     ]);
 
     return {

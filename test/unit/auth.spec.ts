@@ -96,11 +96,13 @@ describe('Auth middleware HTTP enforcement', () => {
 
     const readyRes = await app.inject({ method: 'GET', url: '/ready' });
     expect(readyRes.statusCode).toBe(200);
-    expect(readyRes.json()).toEqual({
+    expect(readyRes.json()).toMatchObject({
       ready: true,
       configuredCount: 6,
-      totalSupported: 10,
+      totalSupported: 12,
+      aliases: { qwen: 'tongyi' },
     });
+    expect((readyRes.json() as { engines: unknown[] }).engines).toHaveLength(12);
   });
 
   it('returns 401 UNAUTHORIZED on /v1/collect and /v1/engines when token is missing or invalid', async () => {
@@ -174,9 +176,9 @@ describe('Auth middleware HTTP enforcement', () => {
         configuredCount: number;
         totalSupported: number;
       };
-      expect(parsed.totalSupported).toBe(10);
+      expect(parsed.totalSupported).toBe(12);
       expect(parsed.configuredCount).toBe(6);
-      expect(parsed.engines).toHaveLength(10);
+      expect(parsed.engines).toHaveLength(12);
     }
   });
 

@@ -1,5 +1,5 @@
 import { splitFanOutQueryString } from '../../core/normalizer.js';
-import type { RawCitation } from '../../core/types.js';
+import type { RawCitation, RetrievedSource } from '../../core/types.js';
 
 const FORBIDDEN_MERGE_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
 
@@ -413,6 +413,205 @@ export function extractToolCallSearchInfo(toolCalls: unknown): {
   return {
     queries: dedupeQueryStrings(queries),
     citations: mergeCitations(citationSources),
+  };
+}
+
+export interface ServerToolCallSearchInfo {
+  /** Search sub-queries in round order, deduplicated (case-insensitive). */
+  queries: string[];
+  /** Pages recalled by `search` actions (deduplicated by URL; `opened: true` when also opened). */
+  retrievedSources: RetrievedSource[];
+  /** Pages the model actually opened via `open_page` actions (deduplicated by URL). */
+  openedPages: RetrievedSource[];
+  /** Number of `search` calls observed. */
+  searchCallCount: number;
+  /** Number of `open_page` calls observed. */
+  openPageCallCount: number;
+}
+
+const SERVER_TOOL_SEARCH_ACTIONS = new Set(['search', 'web_search', 'search_query', 'query']);
+const SERVER_TOOL_OPEN_ACTIONS = new Set([
+  'open_page',
+  'open',
+  'open_url',
+  'fetch',
+  'fetch_page',
+  'browse',
+  'visit',
+]);
+
+function firstString(record: Record<string, unknown>, keys: readonly string[]): string | undefined {
+  for (const key of keys) {
+    const value = asNonEmptyString(record[key]);
+    if (value !== undefined) {
+      return value.trim();
+    }
+  }
+  return undefined;
+}
+
+function toRetrievedSource(entry: unknown): RetrievedSource | undefined {
+  if (typeof entry === 'string') {
+    const url = entry.trim();
+    return /^https?:\/\//i.test(url) ? { url } : undefined;
+  }
+  if (!isRecord(entry)) {
+    return undefined;
+  }
+  const url = firstString(entry, ['url', 'uri', 'link', 'href', 'source_url', 'page_url']);
+  if (url === undefined || !/^https?:\/\//i.test(url)) {
+    return undefined;
+  }
+  const title = firstString(entry, ['title', 'name']);
+  const snippet = firstString(entry, ['snippet', 'summary', 'content', 'description', 'desc']);
+  const siteName = firstString(entry, ['site_name', 'siteName', 'source_name', 'sitename']);
+  const publishedAt = firstString(entry, [
+    'published_at',
+    'publishedAt',
+    'publish_time',
+    'published_time',
+    'date',
+  ]);
+  return {
+    url,
+    ...(title !== undefined ? { title } : {}),
+    ...(snippet !== undefined ? { snippet } : {}),
+    ...(siteName !== undefined ? { siteName } : {}),
+    ...(publishedAt !== undefined ? { publishedAt } : {}),
+  };
+}
+
+function upsertRetrievedSource(
+  byUrl: Map<string, RetrievedSource>,
+  list: RetrievedSource[],
+  source: RetrievedSource,
+): void {
+  const existing = byUrl.get(source.url);
+  if (existing === undefined) {
+    const copy: RetrievedSource = { ...source };
+    byUrl.set(source.url, copy);
+    list.push(copy);
+    return;
+  }
+  for (const key of ['title', 'snippet', 'siteName', 'publishedAt'] as const) {
+    if (existing[key] === undefined && source[key] !== undefined) {
+      existing[key] = source[key];
+    }
+  }
+  if (source.opened === true) {
+    existing.opened = true;
+  }
+}
+
+/** Flattens `server_tool_calls[]` rounds (each with `calls[]`) into calls, preserving round order. */
+function flattenServerToolCalls(serverToolCalls: unknown): Record<string, unknown>[] {
+  if (!Array.isArray(serverToolCalls)) {
+    return [];
+  }
+  const rounds = serverToolCalls
+    .map((round, order) => ({ round, order }))
+    .filter((r): r is { round: Record<string, unknown>; order: number } => isRecord(r.round));
+  const indexOf = (round: Record<string, unknown>): number | undefined => {
+    const idx = round['index'];
+    return typeof idx === 'number' && Number.isFinite(idx) ? idx : undefined;
+  };
+  if (rounds.every((r) => indexOf(r.round) !== undefined)) {
+    rounds.sort((a, b) => (indexOf(a.round) ?? 0) - (indexOf(b.round) ?? 0) || a.order - b.order);
+  }
+
+  const calls: Record<string, unknown>[] = [];
+  for (const { round } of rounds) {
+    if (Array.isArray(round['calls'])) {
+      for (const call of round['calls']) {
+        if (isRecord(call)) {
+          calls.push(call);
+        }
+      }
+    } else if (isRecord(round['action'])) {
+      // Tolerate a flat shape where each entry is already a call.
+      calls.push(round);
+    }
+  }
+  return calls;
+}
+
+/**
+ * Extracts the server-side search trace from DeepSeek-style `message.server_tool_calls[]`
+ * (`tools: [{ type: "deepseek_web_search" }]`):
+ * - `action.type === "search"` → `action.queries[]` / `action.query` become fan-out queries,
+ *   `sources[]` become recalled (retrieved) sources;
+ * - `action.type === "open_page"` → `action.url` / `page.url` become opened pages
+ *   (never counted as fan-out).
+ * Recalled / opened pages are deliberately kept separate from final citations.
+ */
+export function extractServerToolCallSearchInfo(
+  serverToolCalls: unknown,
+): ServerToolCallSearchInfo {
+  const queries: string[] = [];
+  const retrievedByUrl = new Map<string, RetrievedSource>();
+  const retrievedSources: RetrievedSource[] = [];
+  const openedByUrl = new Map<string, RetrievedSource>();
+  const openedPages: RetrievedSource[] = [];
+  let searchCallCount = 0;
+  let openPageCallCount = 0;
+
+  for (const call of flattenServerToolCalls(serverToolCalls)) {
+    const action = isRecord(call['action']) ? call['action'] : {};
+    let actionType = (asNonEmptyString(action['type']) ?? '').trim().toLowerCase();
+    if (actionType.length === 0) {
+      if (action['queries'] !== undefined || action['query'] !== undefined) {
+        actionType = 'search';
+      } else if (action['url'] !== undefined || isRecord(call['page'])) {
+        actionType = 'open_page';
+      }
+    }
+
+    if (SERVER_TOOL_SEARCH_ACTIONS.has(actionType)) {
+      searchCallCount += 1;
+      queries.push(
+        ...extractStringQueries(action['queries']),
+        ...extractStringQueries(action['query']),
+        ...extractStringQueries(action['keywords']),
+      );
+      for (const sourceList of [call['sources'], action['sources'], call['results']]) {
+        if (!Array.isArray(sourceList)) {
+          continue;
+        }
+        for (const entry of sourceList) {
+          const source = toRetrievedSource(entry);
+          if (source !== undefined) {
+            upsertRetrievedSource(retrievedByUrl, retrievedSources, source);
+          }
+        }
+      }
+    } else if (SERVER_TOOL_OPEN_ACTIONS.has(actionType)) {
+      openPageCallCount += 1;
+      const page = isRecord(call['page']) ? call['page'] : undefined;
+      const fromPage = page !== undefined ? toRetrievedSource(page) : undefined;
+      const fromAction = toRetrievedSource(asNonEmptyString(action['url']) ?? action);
+      const merged = fromPage ?? fromAction;
+      if (merged !== undefined) {
+        upsertRetrievedSource(openedByUrl, openedPages, { ...merged, opened: true });
+        if (fromPage !== undefined && fromAction !== undefined && fromAction.url !== fromPage.url) {
+          upsertRetrievedSource(openedByUrl, openedPages, { ...fromAction, opened: true });
+        }
+      }
+    }
+  }
+
+  for (const opened of openedPages) {
+    const recalled = retrievedByUrl.get(opened.url);
+    if (recalled !== undefined) {
+      recalled.opened = true;
+    }
+  }
+
+  return {
+    queries: dedupeQueryStrings(queries),
+    retrievedSources,
+    openedPages,
+    searchCallCount,
+    openPageCallCount,
   };
 }
 

@@ -99,6 +99,20 @@ export const normalizedCitationSchema = z.object({
   position: z.number().int().positive().optional(),
 });
 
+/**
+ * Pages recalled / opened by a server-side search tool but not necessarily cited.
+ * Surfaced under `rawMeta.retrievedSources` / `rawMeta.openedPages`, never inside `citations`.
+ */
+export const retrievedSourceSchema = z.object({
+  url: z.string().url().max(2048),
+  title: z.string().max(300).optional(),
+  snippet: z.string().max(300).optional(),
+  siteName: z.string().max(100).optional(),
+  publishedAt: z.string().max(64).optional(),
+  opened: z.boolean().optional(),
+  position: z.number().int().positive().optional(),
+});
+
 export const collectRawMetaSchema = z
   .object({
     engine: z.string(),
@@ -120,6 +134,8 @@ export const collectRawMetaSchema = z
     locale: z.string().optional(),
     countryCode: z.string().optional(),
     requestedEngine: z.string().optional(),
+    retrievedSources: z.array(retrievedSourceSchema).max(100).optional(),
+    openedPages: z.array(retrievedSourceSchema).max(50).optional(),
   })
   .passthrough();
 
@@ -155,6 +171,7 @@ export const errorEnvelopeSchema = z.object({
 
 export type CollectRequest = z.infer<typeof collectRequestSchema>;
 export type NormalizedCitation = z.infer<typeof normalizedCitationSchema>;
+export type NormalizedRetrievedSource = z.infer<typeof retrievedSourceSchema>;
 export type CollectRawMeta = z.infer<typeof collectRawMetaSchema>;
 export type CollectResponse = z.infer<typeof collectResponseSchema>;
 export type ErrorEnvelope = z.infer<typeof errorEnvelopeSchema>;

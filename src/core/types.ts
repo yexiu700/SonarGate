@@ -24,10 +24,26 @@ export interface CollectContext {
   timeoutMs: number;
 }
 
+/**
+ * A page recalled (or opened) by an engine's server-side search tool. These are NOT
+ * final citations: they are surfaced separately (via `rawMeta.retrievedSources` /
+ * `rawMeta.openedPages`) so they never inflate `citations`.
+ */
+export interface RetrievedSource extends RawCitation {
+  siteName?: string | undefined;
+  publishedAt?: string | undefined;
+  /** True when the model actually opened/read this page (`open_page` action). */
+  opened?: boolean | undefined;
+}
+
 export interface AdapterResult {
   answerText: string;
   citations: RawCitation[];
   fanOutQueries: string[];
+  /** Pages recalled by server-side search but not necessarily cited (e.g. DeepSeek `server_tool_calls`). */
+  retrievedSources?: RetrievedSource[] | undefined;
+  /** Pages the model actually opened during server-side search (`open_page`). */
+  openedPages?: RetrievedSource[] | undefined;
   rawMeta: {
     provider: string;
     model?: string | undefined;

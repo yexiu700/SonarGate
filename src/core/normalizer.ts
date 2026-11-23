@@ -2,9 +2,10 @@ import {
   collectResponseSchema,
   type CollectResponse,
   type NormalizedCitation,
+  type NormalizedRetrievedSource,
 } from './contract.js';
 import { GatewayError } from './errors.js';
-import type { AdapterResult, EngineRegion, RawCitation } from './types.js';
+import type { AdapterResult, EngineRegion, RawCitation, RetrievedSource } from './types.js';
 
 export const MAX_ANSWER_CHARS = 200_000;
 export const MAX_CITATIONS = 100;
@@ -16,6 +17,11 @@ export const DEGRADED_MAX_CITATIONS = 50;
 export const MAX_FAN_OUT_QUERIES = 50;
 export const MAX_FAN_OUT_QUERY_LENGTH = 300;
 export const MAX_RESPONSE_BYTES = 1_900_000;
+export const MAX_RETRIEVED_SOURCES = 100;
+export const MAX_OPENED_PAGES = 50;
+const RETRIEVED_SNIPPET_LENGTH = 300;
+const RETRIEVED_SITE_NAME_LENGTH = 100;
+const RETRIEVED_PUBLISHED_AT_LENGTH = 64;
 const MAX_RAW_META_STRING_LENGTH = 256;
 
 const TRACKING_PARAMS = new Set([
@@ -411,6 +417,74 @@ export function normalizeCitations(rawCitations: RawCitation[]): NormalizedCitat
   return normalized;
 }
 
+function cleanRetrievedField(value: unknown, maxUnits: number): string {
+  return typeof value === 'string'
+    ? sliceSurrogateSafe(stripControlChars(value).trim(), maxUnits).trim()
+    : '';
+}
+
+/**
+ * Normalizes recalled / opened server-side search pages (URL cleaning, dedupe, field caps).
+ * `openedUrls` (normalized) marks recalled pages the model actually opened.
+ */
+export function normalizeRetrievedSources(
+  raw: readonly RetrievedSource[] | undefined,
+  maxItems: number,
+  openedUrls?: ReadonlySet<string>,
+): NormalizedRetrievedSource[] {
+  if (raw === undefined || raw.length === 0) {
+    return [];
+  }
+  const byUrl = new Map<string, NormalizedRetrievedSource>();
+  const normalized: NormalizedRetrievedSource[] = [];
+
+  for (const item of raw) {
+    if (typeof item.url !== 'string') {
+      continue;
+    }
+    const url = normalizeUrl(item.url);
+    if (url === null) {
+      continue;
+    }
+    const fields = {
+      title: cleanRetrievedField(item.title, MAX_TITLE_LENGTH),
+      snippet: cleanRetrievedField(item.snippet, RETRIEVED_SNIPPET_LENGTH),
+      siteName: cleanRetrievedField(item.siteName, RETRIEVED_SITE_NAME_LENGTH),
+      publishedAt: cleanRetrievedField(item.publishedAt, RETRIEVED_PUBLISHED_AT_LENGTH),
+    };
+    const opened = item.opened === true || openedUrls?.has(url) === true;
+
+    const existing = byUrl.get(url);
+    if (existing !== undefined) {
+      for (const key of ['title', 'snippet', 'siteName', 'publishedAt'] as const) {
+        if (existing[key] === undefined && fields[key].length > 0) {
+          existing[key] = fields[key];
+        }
+      }
+      if (opened) {
+        existing.opened = true;
+      }
+      continue;
+    }
+    if (normalized.length >= maxItems) {
+      break;
+    }
+    const entry: NormalizedRetrievedSource = {
+      url,
+      ...(fields.title.length > 0 ? { title: fields.title } : {}),
+      ...(fields.snippet.length > 0 ? { snippet: fields.snippet } : {}),
+      ...(fields.siteName.length > 0 ? { siteName: fields.siteName } : {}),
+      ...(fields.publishedAt.length > 0 ? { publishedAt: fields.publishedAt } : {}),
+      ...(opened ? { opened: true } : {}),
+      position: normalized.length + 1,
+    };
+    byUrl.set(url, entry);
+    normalized.push(entry);
+  }
+
+  return normalized;
+}
+
 /**
  * Splits a single raw query string on ASCII/full-width semicolons and line breaks
  * (`;`, `；`, `\r`, `\n`), strips control chars, collapses horizontal spaces,
@@ -542,10 +616,20 @@ export function normalizeResponse(input: NormalizeInput): CollectResponse {
   // Step 4: fanOutQueries cleaning
   const fanOutQueries = normalizeFanOutQueries(input.result.fanOutQueries, input.prompt);
 
+  // Step 4b: recalled / opened server-side search pages (kept out of `citations`)
+  const openedPages = normalizeRetrievedSources(input.result.openedPages, MAX_OPENED_PAGES).map(
+    (page) => ({ ...page, opened: true }),
+  );
+  const retrievedSources = normalizeRetrievedSources(
+    input.result.retrievedSources,
+    MAX_RETRIEVED_SOURCES,
+    new Set(openedPages.map((page) => page.url)),
+  );
+
   // Build rawMeta omitting undefined values
   const cleanedAdapterMeta: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(input.result.rawMeta)) {
-    if (value !== undefined) {
+    if (value !== undefined && key !== 'retrievedSources' && key !== 'openedPages') {
       cleanedAdapterMeta[key] = value;
     }
   }
@@ -560,6 +644,8 @@ export function normalizeResponse(input: NormalizeInput): CollectResponse {
     attempts: Math.max(1, Math.round(input.meta.attempts)),
     cached: input.meta.cached,
     ...(citationsExtractedFromText ? { citationsExtractedFromText: true } : {}),
+    ...(retrievedSources.length > 0 ? { retrievedSources } : {}),
+    ...(openedPages.length > 0 ? { openedPages } : {}),
   };
 
   const payload: CollectResponse = {

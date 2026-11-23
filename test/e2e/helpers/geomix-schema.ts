@@ -55,6 +55,7 @@ export type RemoteScraperResponse = z.infer<typeof remoteScraperResponseSchema>;
 export const GATEWAY_ERROR_CODES = [
   'INVALID_REQUEST',
   'UNSUPPORTED_ENGINE',
+  'ENGINE_DISABLED',
   'UNAUTHORIZED',
   'UPSTREAM_TIMEOUT',
   'RATE_LIMITED',

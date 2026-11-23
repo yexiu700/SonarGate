@@ -149,6 +149,7 @@ export const collectResponseSchema = z.object({
 export const gatewayErrorCodeSchema = z.enum([
   'INVALID_REQUEST',
   'UNSUPPORTED_ENGINE',
+  'ENGINE_DISABLED',
   'UNAUTHORIZED',
   'UPSTREAM_TIMEOUT',
   'RATE_LIMITED',

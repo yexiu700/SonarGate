@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { isSupportedEngine, resolveEngineAlias, type SupportedEngine } from './core/contract.js';
 
 export type NodeEnv = 'development' | 'production' | 'test';
 export type LogLevel = 'fatal' | 'error' | 'warn' | 'info' | 'debug' | 'trace' | 'silent';
@@ -21,6 +22,10 @@ export interface AppConfig {
     logLevel: LogLevel;
     /** Delay between flipping /ready to 503 and closing the listener, so load balancers can drain. */
     shutdownGraceMs: number;
+  };
+  engines: {
+    disabled: readonly SupportedEngine[];
+    unknownDisabled: readonly string[];
   };
   auth: {
     gatewayApiKeys: readonly string[];
@@ -290,6 +295,7 @@ const rawEnvSchema = z
     GATEWAY_API_KEYS: z.string().optional(),
     GATEWAY_API_KEY: z.string().optional(),
     SHUTDOWN_GRACE_MS: intEnv(0, 60_000, 5_000),
+    DISABLED_ENGINES: z.string().optional(),
 
     // Budget, Resilience & Cache
     GATEWAY_REQUEST_TIMEOUT_MS: intEnv(1_000, 600_000, 105_000),
@@ -447,6 +453,32 @@ function parseGatewayApiKeys(rawKeys?: string, rawSingle?: string): string[] {
   return [];
 }
 
+function parseDisabledEngines(raw?: string): {
+  disabled: SupportedEngine[];
+  unknown: string[];
+} {
+  const disabledSet = new Set<SupportedEngine>();
+  const unknownSet = new Set<string>();
+
+  for (const part of (raw ?? '').split(',')) {
+    const trimmed = part.trim().toLowerCase();
+    if (trimmed.length === 0) {
+      continue;
+    }
+    const canonical = resolveEngineAlias(trimmed);
+    if (isSupportedEngine(canonical)) {
+      disabledSet.add(canonical);
+    } else {
+      unknownSet.add(trimmed);
+    }
+  }
+
+  return {
+    disabled: Array.from(disabledSet),
+    unknown: Array.from(unknownSet),
+  };
+}
+
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   const result = rawEnvSchema.safeParse(env);
   if (!result.success) {
@@ -461,6 +493,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
 
   const data = result.data;
   const gatewayApiKeys = parseGatewayApiKeys(data.GATEWAY_API_KEYS, data.GATEWAY_API_KEY);
+  const parsedDisabledEngines = parseDisabledEngines(data.DISABLED_ENGINES);
   const relayFallback = {
     provider: data.OVERSEAS_PROVIDER,
     baseUrl: data.OVERSEAS_RELAY_BASE_URL,
@@ -485,6 +518,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       nodeEnv: data.NODE_ENV,
       logLevel: data.LOG_LEVEL,
       shutdownGraceMs: data.SHUTDOWN_GRACE_MS,
+    },
+    engines: {
+      disabled: parsedDisabledEngines.disabled,
+      unknownDisabled: parsedDisabledEngines.unknown,
     },
     auth: {
       gatewayApiKeys,
@@ -663,6 +700,12 @@ export function getConfigWarnings(config: AppConfig): string[] {
       `MAX_UPSTREAM_RETRIES=${budget.maxUpstreamRetries} has no effect: GATEWAY_REQUEST_TIMEOUT_MS ` +
         `(${budget.gatewayRequestTimeoutMs}) minus RETRY_BASE_DELAY_MS (${budget.retryBaseDelayMs}) ` +
         `is below RETRY_MIN_REMAINING_BUDGET_MS (${budget.retryMinRemainingBudgetMs}), so retries are never attempted.`,
+    );
+  }
+
+  if (config.engines.unknownDisabled.length > 0) {
+    warnings.push(
+      `DISABLED_ENGINES contains unknown engine name(s): ${config.engines.unknownDisabled.join(', ')}; ignoring.`,
     );
   }
 

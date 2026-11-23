@@ -57,7 +57,7 @@
 
 ### Planned Engines & Error Contract (`400` vs `501`)
 
-`GET /ready` and `GET /v1/engines` return `engines` (each with `status: "ready" | "unconfigured"`), `plannedEngines` (`nami`, `status: "planned"`), and `aliases` (`{ "qwen": "tongyi" }`).
+`GET /ready` and `GET /v1/engines` return `engines` (each with `status: "ready" | "unconfigured" | "disabled"`), `plannedEngines` (`nami`, `status: "planned"`), and `aliases` (`{ "qwen": "tongyi" }`).
 
 `POST /v1/collect` separates client protocol errors (`400`) from unavailable engine capabilities (`501`):
 
@@ -65,6 +65,7 @@
 | :--- | :--- | :--- | :--- |
 | `400` | `INVALID_REQUEST` | `false` | Malformed JSON or schema validation failure |
 | `400` | `UNSUPPORTED_ENGINE` | `false` | Unknown / invalid engine name not in gateway contract |
+| `400` | `ENGINE_DISABLED` | `false` | Supported engine explicitly disabled via `DISABLED_ENGINES` |
 | `401` | `UNAUTHORIZED` | `false` | Missing or invalid Bearer token |
 | `408` | `UPSTREAM_TIMEOUT` | `true` | Upstream request, first-byte/idle stall, or request deadline exceeded |
 | `429` | `RATE_LIMITED` | `true` | Upstream rate limit or local semaphore saturation |

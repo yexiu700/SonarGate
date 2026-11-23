@@ -1,7 +1,7 @@
 import type { Market, PlannedEngine, SupportedEngine } from './contract.js';
 
 export type EngineRegion = 'domestic' | 'overseas';
-export type EngineLifecycleStatus = 'ready' | 'unconfigured' | 'planned';
+export type EngineLifecycleStatus = 'ready' | 'unconfigured' | 'disabled' | 'planned';
 
 export interface RawCitation {
   url: string;

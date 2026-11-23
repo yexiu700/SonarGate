@@ -3,6 +3,7 @@ import type { ErrorEnvelope } from './contract.js';
 export type GatewayErrorCode =
   | 'INVALID_REQUEST'
   | 'UNSUPPORTED_ENGINE'
+  | 'ENGINE_DISABLED'
   | 'UNAUTHORIZED'
   | 'UPSTREAM_TIMEOUT'
   | 'RATE_LIMITED'
@@ -15,6 +16,7 @@ export type GatewayErrorCode =
 export const ERROR_STATUS_MAP: Readonly<Record<GatewayErrorCode, number>> = {
   INVALID_REQUEST: 400,
   UNSUPPORTED_ENGINE: 400,
+  ENGINE_DISABLED: 400,
   UNAUTHORIZED: 401,
   UPSTREAM_TIMEOUT: 408,
   RATE_LIMITED: 429,
@@ -28,6 +30,7 @@ export const ERROR_STATUS_MAP: Readonly<Record<GatewayErrorCode, number>> = {
 export const ERROR_DEFAULT_RETRYABLE: Readonly<Record<GatewayErrorCode, boolean>> = {
   INVALID_REQUEST: false,
   UNSUPPORTED_ENGINE: false,
+  ENGINE_DISABLED: false,
   UNAUTHORIZED: false,
   UPSTREAM_TIMEOUT: true,
   RATE_LIMITED: true,
@@ -104,6 +107,18 @@ export function unsupportedEngineError(engine: string): GatewayError {
     400,
     'UNSUPPORTED_ENGINE',
     `Engine "${engine}" is not supported by SonarGate.`,
+    {
+      retryable: false,
+      engine,
+    },
+  );
+}
+
+export function engineDisabledError(engine: string): GatewayError {
+  return new GatewayError(
+    400,
+    'ENGINE_DISABLED',
+    `Engine "${engine}" is currently disabled and not accepting requests.`,
     {
       retryable: false,
       engine,

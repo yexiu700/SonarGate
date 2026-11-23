@@ -19,6 +19,7 @@ import {
   type SupportedEngine,
 } from './contract.js';
 import {
+  engineDisabledError,
   engineNotConfiguredError,
   engineNotImplementedError,
   unsupportedEngineError,
@@ -44,6 +45,7 @@ export interface EngineRegistryOptions {
   dataforseoConcurrency: number;
   semaphoreWaitMs: number;
   perEngineConcurrency?: Partial<Record<SupportedEngine, number>> | undefined;
+  disabledEngines?: readonly SupportedEngine[] | undefined;
 }
 
 const DEFAULT_DOUBAO_GENTLE_CONCURRENCY = 2;
@@ -51,8 +53,10 @@ const DEFAULT_DOUBAO_GENTLE_CONCURRENCY = 2;
 export class EngineRegistry {
   private readonly adapters = new Map<SupportedEngine, EngineAdapter>();
   private readonly semaphores = new Map<SupportedEngine, Semaphore>();
+  private readonly disabledEngines: ReadonlySet<SupportedEngine>;
 
   constructor(options: EngineRegistryOptions) {
+    this.disabledEngines = new Set(options.disabledEngines ?? []);
     const overseasSemaphore = new Semaphore({
       maxConcurrency: options.dataforseoConcurrency,
       waitTimeoutMs: options.semaphoreWaitMs,
@@ -133,6 +137,7 @@ export class EngineRegistry {
       perEngineConcurrency: {
         doubao: doubaoConcurrency,
       },
+      disabledEngines: config.engines.disabled,
     });
   }
 
@@ -145,6 +150,10 @@ export class EngineRegistry {
         throw engineNotImplementedError(canonical);
       }
       throw unsupportedEngineError(rawNormalized.length > 0 ? rawNormalized : engineName);
+    }
+
+    if (this.disabledEngines.has(canonical)) {
+      throw engineDisabledError(canonical);
     }
 
     const adapter = this.adapters.get(canonical);
@@ -166,7 +175,8 @@ export class EngineRegistry {
         continue;
       }
 
-      const configured = adapter.isConfigured();
+      const disabled = this.disabledEngines.has(engine);
+      const configured = !disabled && adapter.isConfigured();
       const stats = semaphore.getStats();
       const aliases = getAliasesForEngine(adapter.engine);
       statuses.push({
@@ -175,7 +185,7 @@ export class EngineRegistry {
         provider: adapter.provider,
         ...(adapter.model !== undefined ? { model: adapter.model } : {}),
         configured,
-        status: configured ? 'ready' : 'unconfigured',
+        status: disabled ? 'disabled' : configured ? 'ready' : 'unconfigured',
         ...(aliases.length > 0 ? { aliases } : {}),
         concurrencyLimit: stats.maxConcurrency,
         activeRequests: stats.active,
@@ -195,13 +205,14 @@ export class EngineRegistry {
       if (adapter === undefined) {
         continue;
       }
-      const configured = adapter.isConfigured();
+      const disabled = this.disabledEngines.has(engine);
+      const configured = !disabled && adapter.isConfigured();
       const aliases = getAliasesForEngine(adapter.engine);
       summaries.push({
         engine: adapter.engine,
         region: adapter.region,
         configured,
-        status: configured ? 'ready' : 'unconfigured',
+        status: disabled ? 'disabled' : configured ? 'ready' : 'unconfigured',
         ...(aliases.length > 0 ? { aliases } : {}),
       });
     }
@@ -221,6 +232,9 @@ export class EngineRegistry {
   getConfiguredCount(): number {
     let count = 0;
     for (const engine of SUPPORTED_ENGINES) {
+      if (this.disabledEngines.has(engine)) {
+        continue;
+      }
       const adapter = this.adapters.get(engine);
       if (adapter !== undefined && adapter.isConfigured()) {
         count += 1;

@@ -66,6 +66,12 @@ export function registerCollectRoutes(app: FastifyInstance, options: CollectRout
           latencyMs: result.latencyMs,
           citationsCount: result.response.citations.length,
           fanOutCount: result.response.fanOutQueries.length,
+          ...(result.response.rawMeta.retrievedSources !== undefined
+            ? { retrievedSourcesCount: result.response.rawMeta.retrievedSources.length }
+            : {}),
+          ...(result.response.rawMeta.openedPages !== undefined
+            ? { openedPagesCount: result.response.rawMeta.openedPages.length }
+            : {}),
           ...(result.response.rawMeta.costUsd !== undefined
             ? { costUsd: result.response.rawMeta.costUsd }
             : {}),

@@ -12,7 +12,9 @@ import {
   asString,
   dedupeQueryStrings,
   deepMergeRecords,
+  asNonNegativeInt,
   extractMessageText,
+  extractServerToolCallSearchInfo,
   extractStringQueries,
   extractToolCallSearchInfo,
   isRecord,
@@ -163,6 +165,17 @@ export class DeepSeekAdapter implements EngineAdapter {
     const choiceSearchInfo = isRecord(choice?.['search_info']) ? choice['search_info'] : undefined;
     const msgSearchInfo = isRecord(message?.['search_info']) ? message['search_info'] : undefined;
     const toolCallSearch = extractToolCallSearchInfo(message?.['tool_calls']);
+    // DeepSeek server-side web search (`tools: [{ type: "deepseek_web_search" }]`) reports its
+    // multi-round trace in `message.server_tool_calls[].calls[]` (see issue #24).
+    const serverToolSearch = extractServerToolCallSearchInfo(
+      message?.['server_tool_calls'] ?? choice?.['server_tool_calls'],
+    );
+    const serverToolUse =
+      isRecord(data['usage']) && isRecord(data['usage']['server_tool_use'])
+        ? data['usage']['server_tool_use']
+        : undefined;
+    const serverToolSearchCount = asNonNegativeInt(serverToolUse?.['tool_search']);
+    const serverToolFetchCount = asNonNegativeInt(serverToolUse?.['tool_fetch']);
 
     const mergedCitations = mergeCitations([
       data['citations'],
@@ -200,19 +213,39 @@ export class DeepSeekAdapter implements EngineAdapter {
       ...extractNestedSearchQueries(data['search_intent']),
       ...arkFallback.queries,
       ...toolCallSearch.queries,
+      ...serverToolSearch.queries,
     ]);
+
+    const hasServerToolTrace =
+      serverToolSearch.searchCallCount > 0 || serverToolSearch.openPageCallCount > 0;
 
     return {
       answerText,
       citations,
       fanOutQueries,
+      ...(serverToolSearch.retrievedSources.length > 0
+        ? { retrievedSources: serverToolSearch.retrievedSources }
+        : {}),
+      ...(serverToolSearch.openedPages.length > 0
+        ? { openedPages: serverToolSearch.openedPages }
+        : {}),
       rawMeta: buildChatCompletionMeta({
         provider: this.provider,
         responseModel: model,
         fallbackModel: this.model,
         upstreamRequestId: id,
         usage,
-        extra: { hasReasoning },
+        extra: {
+          hasReasoning,
+          ...(hasServerToolTrace
+            ? {
+                serverToolSearchCalls: serverToolSearch.searchCallCount,
+                serverToolOpenPageCalls: serverToolSearch.openPageCallCount,
+              }
+            : {}),
+          ...(serverToolSearchCount !== undefined ? { serverToolSearchCount } : {}),
+          ...(serverToolFetchCount !== undefined ? { serverToolFetchCount } : {}),
+        },
       }),
     };
   }

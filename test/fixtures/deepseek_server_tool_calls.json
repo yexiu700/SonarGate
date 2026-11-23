@@ -1,0 +1,136 @@
+{
+  "id": "chatcmpl-deepseek-srvtool-001",
+  "object": "chat.completion",
+  "model": "deepseek-chat",
+  "choices": [
+    {
+      "index": 0,
+      "finish_reason": "stop",
+      "message": {
+        "role": "assistant",
+        "content": "综合 2026 年多家评测，推荐以下几款扫地机器人：品牌A X1、品牌B S9、品牌C T7。",
+        "reasoning_content": "内部思考链：需要先搜索评测，再打开排行页面核对。",
+        "annotations": [
+          {
+            "type": "url_citation",
+            "url_citation": {
+              "url": "https://example.com/a",
+              "title": "2026 扫地机器人推荐榜",
+              "start_index": 0,
+              "end_index": 30
+            }
+          },
+          {
+            "type": "url_citation",
+            "url_citation": {
+              "url": "https://example.com/b",
+              "title": "2026 扫地机器人评测排行",
+              "start_index": 31,
+              "end_index": 60
+            }
+          }
+        ],
+        "server_tool_calls": [
+          {
+            "index": 2,
+            "calls": [
+              {
+                "id": "srvtoolu_ds_02_ccc",
+                "type": "deepseek_web_search",
+                "kind": "deep_search",
+                "action": {
+                  "type": "search",
+                  "queries": ["品牌B 扫地机器人 2026 评测", "品牌C 扫地机器人 2026 评测"]
+                },
+                "status": "completed",
+                "sources": [
+                  "...",
+                  {
+                    "type": "url",
+                    "url": "https://example.com/e?utm_source=ds",
+                    "title": "品牌C T7 深度评测",
+                    "site_name": "评测站E"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "index": 0,
+            "reasoning_content": "先做一轮宽泛检索。",
+            "calls": [
+              {
+                "id": "srvtoolu_ds_00_aaa",
+                "type": "deepseek_web_search",
+                "kind": "deep_search",
+                "action": {
+                  "type": "search",
+                  "queries": [
+                    "2026 扫地机器人 推荐",
+                    "2026 扫地机器人 评测 排行",
+                    "品牌A 扫地机器人 2026 新款",
+                    "2026 扫地机器人 推荐"
+                  ]
+                },
+                "status": "completed",
+                "sources": [
+                  {
+                    "type": "url",
+                    "url": "https://example.com/b",
+                    "title": "2026 扫地机器人评测排行",
+                    "snippet": "综合吸力、避障与续航的年度排行。",
+                    "site_name": "评测站B",
+                    "published_at": "2026-04-27T16:00:00+00:00"
+                  },
+                  {
+                    "type": "url",
+                    "url": "https://example.com/c",
+                    "title": "扫地机器人选购指南",
+                    "snippet": "从预算到户型的选购建议。",
+                    "site_name": "指南站C",
+                    "published_at": "2026-03-01T08:00:00+00:00"
+                  },
+                  {
+                    "type": "url",
+                    "url": "https://example.com/d",
+                    "title": "品牌A X1 发布会回顾",
+                    "site_name": "科技站D"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "index": 1,
+            "calls": [
+              {
+                "id": "srvtoolu_ds_01_bbb",
+                "type": "deepseek_web_search",
+                "action": { "type": "open_page", "url": "https://example.com/c" },
+                "status": "completed",
+                "page": {
+                  "url": "https://example.com/c",
+                  "title": "扫地机器人选购指南",
+                  "published_at": "2026-03-01T08:00:00+00:00"
+                }
+              },
+              {
+                "id": "srvtoolu_ds_01_bbc",
+                "type": "deepseek_web_search",
+                "action": { "type": "search", "query": "扫地机器人 避障 对比" },
+                "status": "completed",
+                "sources": []
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 120,
+    "completion_tokens": 340,
+    "total_tokens": 460,
+    "server_tool_use": { "tool_search": 4, "tool_fetch": 1, "tool_image_search": 0 }
+  }
+}
